@@ -2,17 +2,22 @@
 # PresenterOps API container
 # ---------------------------------------------------------------------------
 
-FROM node:20-alpine AS builder
+FROM node:20-bookworm-slim AS builder
 
 WORKDIR /repo
 
-# Copy workspace manifests first.
+# Prisma requires OpenSSL.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace manifests.
 COPY package*.json ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/api/package.json apps/api/
 
-# Prisma schema must exist before npm ci because the API package has:
-# "postinstall": "prisma generate"
+# Prisma schema must exist before npm ci because the API workspace
+# runs prisma generate during postinstall.
 COPY apps/api/prisma apps/api/prisma
 
 RUN npm ci --workspaces --include-workspace-root
@@ -21,10 +26,12 @@ RUN npm ci --workspaces --include-workspace-root
 COPY packages/shared packages/shared
 RUN npm run build --workspace @presenter-ops/shared
 
-# Copy and build API.
+# Build API.
 COPY apps/api apps/api
 
-RUN npx prisma generate --schema apps/api/prisma/schema.prisma
+RUN ./node_modules/.bin/prisma generate \
+    --schema apps/api/prisma/schema.prisma
+
 RUN npm run build --workspace @presenter-ops/api
 
 
@@ -32,36 +39,48 @@ RUN npm run build --workspace @presenter-ops/api
 # Runtime image
 # ---------------------------------------------------------------------------
 
-FROM node:20-alpine AS runtime
+FROM node:20-bookworm-slim AS runtime
 
 WORKDIR /repo
 
 ENV NODE_ENV=production
 
-RUN apk add --no-cache dumb-init
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       openssl \
+       ca-certificates \
+       dumb-init \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/api/package.json apps/api/
 
-# Prisma schema is also required during the production npm install because
-# the API workspace postinstall script runs Prisma generate.
+# Required by Prisma postinstall and migrate deploy.
 COPY apps/api/prisma apps/api/prisma
 
 RUN npm ci --omit=dev --workspaces --include-workspace-root \
     && npm cache clean --force
 
-# Copy compiled application.
+# Compiled application.
 COPY --from=builder /repo/packages/shared/dist packages/shared/dist
 COPY --from=builder /repo/apps/api/dist apps/api/dist
 
-# Copy Prisma schema and generated client.
+# Migration files/schema.
 COPY --from=builder /repo/apps/api/prisma apps/api/prisma
-COPY --from=builder /repo/node_modules/.prisma node_modules/.prisma
+
+# Allow the non-root application user to access Prisma's generated engines.
+RUN chown -R node:node /repo/node_modules \
+    /repo/apps \
+    /repo/packages
 
 USER node
 
 EXPOSE 4000
 
-# Apply database migrations and start NestJS.
-CMD ["dumb-init", "sh", "-c", "npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && node apps/api/dist/main.js"]
+CMD [
+  "dumb-init",
+  "sh",
+  "-c",
+  "./node_modules/.bin/prisma migrate deploy --schema apps/api/prisma/schema.prisma && node apps/api/dist/main.js"
+]
