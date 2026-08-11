@@ -1,0 +1,735 @@
+// ---------------------------------------------------------------------------
+// PresenterOps — database schema
+// PostgreSQL + Prisma
+//
+// Conventions used throughout:
+//   * All ids are cuid() strings.
+//   * All money is stored as INTEGER MINOR UNITS (pence/cents) + an ISO-4217
+//     currency code. Never floats. `amountMinor = 25000` + `GBP` = £250.00.
+//   * All timestamps are UTC `DateTime`. The UI converts to the viewer's tz.
+//   * Anything the business will keep inventing new values for (brands, work
+//     types, skills) is a TABLE, not an enum, so it can be created inline from
+//     a free-text field. Anything that has behaviour attached (statuses, roles)
+//     is an ENUM, because adding a value requires code changes anyway.
+//   * Deliberate denormalisation is marked `// DENORM:` with the reason.
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================================================
+// ENUMS
+// ===========================================================================
+
+/// Who someone is inside the tool. A User has exactly one role.
+enum Role {
+  ADMIN // full access incl. settings, users, deletion
+  PRODUCER // creates + assigns work, manages presenters   (the main internal user)
+  MARKETING // read work, write performance metrics + upload scripts
+  FINANCE // read rates/fees + export payment runs, no editing of work
+  PRESENTER // external freelancer, sees only their own records
+  VIEWER // read-only internal (e.g. a brand lead)
+}
+
+enum PresenterStatus {
+  ONBOARDING // profile created, contracts not all signed
+  ACTIVE // available for assignment
+  PAUSED // temporarily not being assigned (parental leave, other commitments)
+  ARCHIVED // no longer worked with; hidden from pickers, history retained
+}
+
+enum ContractStatus {
+  DRAFT
+  PENDING // sent, awaiting signature
+  SIGNED
+  EXPIRED
+  TERMINATED
+}
+
+/// The unit a fee is expressed in. Drives how totalFee is computed.
+enum RateUnit {
+  PER_VIDEO
+  PER_FINISHED_MINUTE
+  PER_HOUR
+  PER_HALF_DAY
+  PER_DAY
+  PER_PROJECT // flat fee, quantity ignored
+}
+
+/// Assignment lifecycle. Transitions are enforced in code
+/// (see apps/api/src/modules/assignments/assignment-state.ts).
+enum AssignmentStatus {
+  DRAFT // being written, presenter may not be chosen yet
+  ASSIGNED // sent to the presenter, awaiting their response
+  ACCEPTED // presenter has confirmed
+  IN_PROGRESS // presenter has started
+  SUBMITTED // presenter has supplied the delivery link
+  IN_REVIEW // internal review under way
+  REVISIONS_REQUESTED // sent back to the presenter
+  APPROVED // signed off, ready to publish/pay
+  COMPLETED // published + paid; terminal
+  DECLINED // presenter turned it down; terminal
+  CANCELLED // pulled by us; terminal
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum AttachmentKind {
+  SCRIPT // the marketing script the presenter reads
+  BRIEF // supporting brief / shot list
+  REFERENCE // examples, brand guidelines
+  CONTRACT // signed contract PDF
+  DELIVERABLE // the finished video (normally EXTERNAL_LINK to OneDrive)
+  INVOICE
+  OTHER
+}
+
+/// Where the bytes actually live.
+enum StorageProvider {
+  S3 // any S3-compatible bucket (AWS S3, Cloudflare R2, MinIO)
+  EXTERNAL_LINK // we only hold a URL — OneDrive / SharePoint / Google Drive
+}
+
+enum Platform {
+  YOUTUBE
+  FACEBOOK
+  INSTAGRAM
+  TIKTOK
+  LINKEDIN
+  X
+  WEBSITE
+  EMAIL
+  PAID_ADS
+  OTHER
+}
+
+enum AvailabilityType {
+  UNAVAILABLE
+  LIMITED
+  PREFERRED
+}
+
+enum EventType {
+  ASSIGNMENT_CREATED
+  ASSIGNMENT_UPDATED
+  STATUS_CHANGED
+  PRESENTER_CHANGED
+  DUE_DATE_CHANGED
+  ATTACHMENT_ADDED
+  ATTACHMENT_REMOVED
+  COMMENT_ADDED
+  DELIVERY_SUBMITTED
+  FEEDBACK_ADDED
+  PERFORMANCE_RECORDED
+  TIME_LOGGED
+  REMINDER_SENT
+}
+
+enum NotificationType {
+  ASSIGNMENT_OFFERED
+  ASSIGNMENT_ACCEPTED
+  ASSIGNMENT_DECLINED
+  ASSIGNMENT_DUE_SOON
+  ASSIGNMENT_OVERDUE
+  DELIVERY_SUBMITTED
+  REVISIONS_REQUESTED
+  APPROVED
+  FEEDBACK_RECEIVED
+  COMMENT_MENTION
+  CONTRACT_EXPIRING
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+}
+
+// ===========================================================================
+// IDENTITY & ACCESS
+// ===========================================================================
+
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  name         String
+  passwordHash String?
+  avatarUrl    String?
+  role         Role    @default(PRODUCER)
+  isActive     Boolean @default(true)
+
+  timezone String @default("Europe/London")
+  locale   String @default("en-GB")
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  /// Set only when role = PRESENTER. Links the login to the freelancer record.
+  presenter Presenter?
+
+  refreshTokens      RefreshToken[]
+  invitationsSent    Invitation[]        @relation("InvitedBy")
+  createdAssignments Assignment[]        @relation("AssignmentCreatedBy")
+  uploadedFiles      Attachment[]
+  comments           Comment[]
+  feedbackAuthored   Feedback[]
+  events             AssignmentEvent[]
+  performanceEntries PerformanceMetric[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+
+  @@index([role, isActive])
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// SHA-256 of the token. The raw token is never stored.
+  tokenHash String    @unique
+  userAgent String?
+  ip        String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, revokedAt])
+}
+
+model Invitation {
+  id          String    @id @default(cuid())
+  email       String
+  role        Role
+  presenterId String?   @unique
+  presenter   Presenter? @relation(fields: [presenterId], references: [id], onDelete: SetNull)
+  tokenHash   String    @unique
+  invitedById String
+  invitedBy   User      @relation("InvitedBy", fields: [invitedById], references: [id])
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([email])
+}
+
+// ===========================================================================
+// TAXONOMY — user-extensible lists (created inline from free-text inputs)
+// ===========================================================================
+
+/// A website / brand we produce for: Aspirex, South London College,
+/// Imperial Audio Tech, Selector, and whatever comes next.
+/// Created on the fly by typing a name that does not exist yet.
+model Brand {
+  id         String  @id @default(cuid())
+  name       String  @unique
+  slug       String  @unique
+  websiteUrl String?
+  /// Hex colour used for the brand chip in the UI, e.g. "#3B82F6".
+  colorHex   String  @default("#64748B")
+  notes      String?
+  isActive   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contracts   PresenterBrand[]
+  assignments Assignment[]
+
+  @@index([isActive, name])
+}
+
+/// Kind of work: talking head, voiceover, webinar, ad read, social short…
+model WorkType {
+  id                    String  @id @default(cuid())
+  name                  String  @unique
+  slug                  String  @unique
+  /// Used to pre-fill the estimate when a producer picks this work type.
+  defaultEstimatedHours Decimal? @db.Decimal(6, 2)
+  /// Default turnaround expectation in days, used to pre-fill the due date.
+  defaultTurnaroundDays Int?
+  isActive              Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments Assignment[]
+}
+
+/// Free-text skill / attribute tags on a presenter ("finance", "on-camera",
+/// "RP accent", "owns studio", "BSL"). Created inline.
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  presenters PresenterTag[]
+}
+
+model PresenterTag {
+  presenterId String
+  presenter   Presenter @relation(fields: [presenterId], references: [id], onDelete: Cascade)
+  tagId       String
+  tag         Tag       @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([presenterId, tagId])
+  @@index([tagId])
+}
+
+// ===========================================================================
+// PRESENTERS
+// ===========================================================================
+
+model Presenter {
+  id String @id @default(cuid())
+
+  /// Optional login for the presenter portal. Null until they are invited.
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  fullName    String
+  /// What we call them day to day; defaults to fullName.
+  displayName String
+  email       String  @unique
+  phone       String?
+  photoUrl    String?
+  bio         String?
+  location    String?
+  timezone    String  @default("Europe/London")
+
+  status PresenterStatus @default(ONBOARDING)
+
+  // ---- default commercial terms -----------------------------------------
+  // A per-brand override on PresenterBrand wins over these.
+  defaultRateMinor Int?
+  defaultRateUnit  RateUnit @default(PER_VIDEO)
+  defaultCurrency  String   @default("GBP") @db.Char(3)
+
+  // ---- capacity, used by the workload-balance view -----------------------
+  /// How many deliverables this presenter is happy to take per month.
+  targetDeliverablesPerMonth Int?
+  /// Relative weight when splitting work. 1.0 = a normal share; 0.5 = half
+  /// share (part-time); 2.0 = double. Drives `expectedShare` in the fairness
+  /// calculation — see packages/shared/src/domain/workload.ts.
+  capacityWeight             Decimal @default(1.0) @db.Decimal(4, 2)
+
+  // ---- admin -------------------------------------------------------------
+  /// Free-text internal notes; never shown in the presenter portal.
+  internalNotes String?
+  /// Their own payment reference / supplier number in your accounting system.
+  supplierRef   String?
+
+  onboardedAt DateTime?
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // DENORM: maintained by AssignmentsService on every status change so the
+  // directory list can sort/filter on "who haven't we used lately" without an
+  // aggregate per row. Recomputable via `npm run recompute:presenter-stats`.
+  lastAssignedAt         DateTime?
+  lastCompletedAt        DateTime?
+  completedAssignments   Int       @default(0)
+  /// Mean (submittedAt - assignedAt) in minutes over completed assignments.
+  avgTurnaroundMinutes   Int?
+  /// Mean of Feedback.overallRating, 1–5, two decimal places.
+  avgRating              Decimal?  @db.Decimal(3, 2)
+  /// completed / (completed + late) as a percentage 0–100.
+  onTimeDeliveryPct      Decimal?  @db.Decimal(5, 2)
+
+  contracts    PresenterBrand[]
+  assignments  Assignment[]
+  tags         PresenterTag[]
+  availability Availability[]
+  feedback     Feedback[]
+  timeLogs     TimeLog[]
+  invitation   Invitation?
+
+  @@index([status, lastAssignedAt])
+  @@index([displayName])
+}
+
+/// The signed relationship between a presenter and one brand, plus the rate
+/// that applies to that brand. This is the "websites they have contracts to".
+model PresenterBrand {
+  id String @id @default(cuid())
+
+  presenterId String
+  presenter   Presenter @relation(fields: [presenterId], references: [id], onDelete: Cascade)
+  brandId     String
+  brand       Brand     @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  contractStatus    ContractStatus @default(PENDING)
+  contractSignedAt  DateTime?
+  contractExpiresAt DateTime?
+
+  // ---- per-brand rate override (null = fall back to presenter default) ----
+  rateMinor Int?
+  rateUnit  RateUnit?
+  currency  String?   @db.Char(3)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attachments Attachment[]
+
+  @@unique([presenterId, brandId])
+  @@index([brandId, contractStatus])
+  @@index([contractExpiresAt])
+}
+
+/// Blocks of time a presenter is away or has limited capacity.
+model Availability {
+  id          String           @id @default(cuid())
+  presenterId String
+  presenter   Presenter        @relation(fields: [presenterId], references: [id], onDelete: Cascade)
+  type        AvailabilityType @default(UNAVAILABLE)
+  startDate   DateTime         @db.Date
+  endDate     DateTime         @db.Date
+  note        String?
+  createdAt   DateTime         @default(now())
+
+  @@index([presenterId, startDate, endDate])
+}
+
+// ===========================================================================
+// WORK
+// ===========================================================================
+
+model Assignment {
+  id String @id @default(cuid())
+
+  /// Human-facing code shown everywhere in the UI, e.g. "ASP-0142".
+  /// Prefix is derived from the brand slug; the number is a per-brand counter.
+  reference String @unique
+
+  title       String
+  /// Markdown. What the presenter actually has to do.
+  description String?
+
+  brandId String
+  brand   Brand  @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  /// Null while the assignment is still a DRAFT.
+  presenterId String?
+  presenter   Presenter? @relation(fields: [presenterId], references: [id], onDelete: SetNull)
+
+  workTypeId String?
+  workType   WorkType? @relation(fields: [workTypeId], references: [id], onDelete: SetNull)
+
+  createdById String
+  createdBy   User   @relation("AssignmentCreatedBy", fields: [createdById], references: [id])
+
+  status   AssignmentStatus @default(DRAFT)
+  priority Priority         @default(NORMAL)
+
+  /// How many finished videos this assignment covers.
+  deliverableCount Int @default(1)
+
+  // ---- agreed money (SNAPSHOT) ------------------------------------------
+  // Copied from the rate card at the moment of assignment so that changing a
+  // presenter's rate later never rewrites history. Editable before ACCEPTED.
+  feeMinor      Int?
+  feeUnit       RateUnit?
+  feeQuantity   Decimal   @default(1) @db.Decimal(8, 2)
+  feeCurrency   String    @default("GBP") @db.Char(3)
+  /// feeMinor × feeQuantity, rounded half-up. Stored so finance exports and
+  /// workload totals do not have to recompute per row.
+  totalFeeMinor Int?
+
+  // ---- effort ------------------------------------------------------------
+  estimatedHours Decimal? @db.Decimal(6, 2)
+  /// Sum of TimeLog.minutes ÷ 60. DENORM, maintained by TimeLogService.
+  actualHours    Decimal? @db.Decimal(6, 2)
+
+  // ---- dates -------------------------------------------------------------
+  assignedAt  DateTime?
+  dueAt       DateTime?
+  acceptedAt  DateTime?
+  startedAt   DateTime?
+  submittedAt DateTime?
+  approvedAt  DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
+
+  // DENORM: (submittedAt − assignedAt) in minutes, written once on submission.
+  // This is "how long they took". Kept as a column so the reporting queries
+  // are plain aggregates rather than date arithmetic over millions of rows.
+  turnaroundMinutes Int?
+  /// (acceptedAt − assignedAt) in minutes — responsiveness, not production time.
+  responseMinutes   Int?
+  /// (submittedAt − dueAt) in minutes; negative = early, positive = late.
+  latenessMinutes   Int?
+
+  revisionCount Int @default(0)
+
+  // ---- delivery ----------------------------------------------------------
+  /// OneDrive / SharePoint link to the finished video(s). We store the link,
+  /// not the file — see docs/02-architecture.md §"Why we do not store video".
+  deliveryUrl   String?
+  deliveryNotes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attachments  Attachment[]
+  comments     Comment[]
+  events       AssignmentEvent[]
+  feedback     Feedback[]
+  performance  PerformanceMetric[]
+  timeLogs     TimeLog[]
+
+  @@index([status, dueAt])
+  @@index([presenterId, status])
+  @@index([brandId, createdAt])
+  @@index([assignedAt])
+  @@index([completedAt])
+}
+
+/// Per-brand sequence for the human reference code (ASP-0001, SLC-0001…).
+/// Incremented inside the same transaction that creates the assignment.
+model BrandCounter {
+  brandId String @id
+  prefix  String
+  next    Int    @default(1)
+}
+
+/// Any file or link hung off an assignment or a contract.
+model Attachment {
+  id   String         @id @default(cuid())
+  kind AttachmentKind @default(SCRIPT)
+
+  assignmentId String?
+  assignment   Assignment? @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  presenterBrandId String?
+  presenterBrand   PresenterBrand? @relation(fields: [presenterBrandId], references: [id], onDelete: Cascade)
+
+  storage StorageProvider @default(S3)
+
+  fileName  String
+  mimeType  String?
+  sizeBytes Int?
+  /// Object key inside the bucket. Null when storage = EXTERNAL_LINK.
+  storageKey  String?
+  /// The URL when storage = EXTERNAL_LINK (OneDrive/SharePoint).
+  externalUrl String?
+
+  /// Scripts get revised. v1, v2, v3 share a `versionGroupId`; the newest is
+  /// `isCurrent`. The presenter portal only ever shows the current version.
+  version        Int     @default(1)
+  versionGroupId String?
+  isCurrent      Boolean @default(true)
+
+  /// Whether the presenter can see this in their portal.
+  visibleToPresenter Boolean @default(true)
+
+  uploadedById String
+  uploadedBy   User   @relation(fields: [uploadedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([assignmentId, kind, isCurrent])
+  @@index([versionGroupId])
+}
+
+model Comment {
+  id           String     @id @default(cuid())
+  assignmentId String
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User       @relation(fields: [authorId], references: [id])
+  body         String
+  /// Internal notes are never returned to a PRESENTER-role request.
+  isInternal   Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([assignmentId, createdAt])
+}
+
+/// Append-only timeline. Everything that happens to an assignment lands here,
+/// which is what powers the activity feed and the "who changed what" answer.
+model AssignmentEvent {
+  id           String     @id @default(cuid())
+  assignmentId String
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  actorId      String?
+  actor        User?      @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  type         EventType
+  fromStatus   AssignmentStatus?
+  toStatus     AssignmentStatus?
+  /// Arbitrary detail, e.g. { "field": "dueAt", "from": "...", "to": "..." }.
+  payload      Json?
+  createdAt    DateTime   @default(now())
+
+  @@index([assignmentId, createdAt])
+}
+
+model TimeLog {
+  id           String     @id @default(cuid())
+  assignmentId String
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  presenterId  String
+  presenter    Presenter  @relation(fields: [presenterId], references: [id], onDelete: Cascade)
+  minutes      Int
+  workedOn     DateTime   @db.Date
+  note         String?
+  createdAt    DateTime   @default(now())
+
+  @@index([assignmentId])
+  @@index([presenterId, workedOn])
+}
+
+// ===========================================================================
+// QUALITY & PERFORMANCE
+// ===========================================================================
+
+/// Internal review of how the presenter did. One per reviewer per assignment.
+model Feedback {
+  id           String     @id @default(cuid())
+  assignmentId String
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  presenterId  String
+  presenter    Presenter  @relation(fields: [presenterId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User       @relation(fields: [authorId], references: [id])
+
+  /// All ratings are 1–5 integers. overallRating is required; the rest optional.
+  overallRating       Int
+  deliveryRating      Int?
+  scriptAccuracy      Int?
+  professionalism     Int?
+  timeliness          Int?
+  productionQuality   Int?
+
+  /// What went well / what to change. Markdown.
+  comment String?
+
+  /// Sharing a review with the presenter is a deliberate act, not the default.
+  visibleToPresenter Boolean   @default(false)
+  sharedAt           DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([assignmentId, authorId])
+  @@index([presenterId, createdAt])
+}
+
+/// How the finished video actually performed. Owned by MARKETING.
+/// One row per platform per assignment per snapshot date, so you can track a
+/// video's numbers over time rather than overwriting them.
+model PerformanceMetric {
+  id           String     @id @default(cuid())
+  assignmentId String
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  platform    Platform
+  contentUrl  String?
+  publishedAt DateTime?
+  /// The date these numbers were read off the platform.
+  measuredOn  DateTime @db.Date
+
+  impressions            Int?
+  views                  Int?
+  uniqueViewers          Int?
+  watchTimeMinutes       Int?
+  avgViewDurationSeconds Int?
+  likes                  Int?
+  comments               Int?
+  shares                 Int?
+  clicks                 Int?
+  leads                  Int?
+  conversions            Int?
+
+  /// Media spend behind the asset, minor units.
+  spendMinor   Int?
+  /// Attributed revenue, minor units.
+  revenueMinor Int?
+  currency     String @default("GBP") @db.Char(3)
+
+  notes String?
+
+  recordedById String
+  recordedBy   User   @relation(fields: [recordedById], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([assignmentId, platform, measuredOn])
+  @@index([assignmentId, platform, measuredOn])
+  @@index([measuredOn])
+}
+
+// ===========================================================================
+// SYSTEM
+// ===========================================================================
+
+model Notification {
+  id      String              @id @default(cuid())
+  userId  String
+  user    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type    NotificationType
+  channel NotificationChannel @default(IN_APP)
+
+  title   String
+  body    String?
+  linkUrl String?
+
+  readAt    DateTime?
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt, createdAt])
+}
+
+/// Immutable record of who did what. Written by an interceptor on every
+/// non-GET request that succeeds.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String // "assignment.status_changed"
+  entityType String // "Assignment"
+  entityId   String
+  before     Json?
+  after      Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+/// Single-row table of tenant-wide settings, editable from Settings.
+model AppSetting {
+  id                        String  @id @default("singleton")
+  organisationName          String  @default("Imperial Learning")
+  defaultCurrency           String  @default("GBP") @db.Char(3)
+  /// Balance index below this = flagged "under-allocated" in the workload view.
+  workloadUnderThreshold    Decimal @default(0.80) @db.Decimal(4, 2)
+  /// Balance index above this = flagged "over-allocated".
+  workloadOverThreshold     Decimal @default(1.25) @db.Decimal(4, 2)
+  /// Days without an assignment before a presenter shows as "going cold".
+  goingColdAfterDays        Int     @default(30)
+  /// Hours before dueAt to fire the "due soon" notification.
+  dueSoonHours              Int     @default(48)
+  /// Days before contractExpiresAt to warn.
+  contractExpiryWarningDays Int     @default(30)
+  aiEnabled                 Boolean @default(false)
+  updatedAt                 DateTime @updatedAt
+}

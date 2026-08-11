@@ -1,0 +1,173 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===========================================================================
+   DESIGN TOKENS
+   ---------------------------------------------------------------------------
+   Every colour, radius and shadow in the product comes from a token below.
+   No component ever writes a raw hex value. That is what keeps the interface
+   coherent as it grows, and what makes a rebrand a ten-line change.
+
+   Colours are HSL triplets (no hsl() wrapper) so Tailwind can add an alpha
+   channel: `bg-primary/10` works because the token is `221 83% 53%`.
+
+   The palette is deliberately narrow: one neutral ramp, one accent, and four
+   semantic colours. Brand colours (Aspirex blue, SLC green…) are DATA, not
+   design tokens — they arrive from the database and are only ever used on the
+   small brand chips, never on interface furniture. That separation stops the
+   UI turning into a rainbow as more brands are added.
+   =========================================================================== */
+
+@layer base {
+  :root {
+    /* --- surfaces ------------------------------------------------------- */
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    /* The page sits on a very slightly tinted grey so white cards lift off it.
+       Pure white on pure white gives you nothing to read structure from. */
+    --canvas: 220 20% 97%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* --- accent --------------------------------------------------------- */
+    --primary: 221 83% 53%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 220 14% 96%;
+    --accent-foreground: 222 47% 11%;
+
+    /* --- semantic ------------------------------------------------------- */
+    --success: 142 71% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 45%;
+    --warning-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --info: 199 89% 44%;
+    --info-foreground: 0 0% 100%;
+
+    /* --- lines and controls --------------------------------------------- */
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 221 83% 53%;
+
+    --radius: 0.625rem;
+
+    /* Shadows are layered rather than single, so elevation reads as depth
+       instead of a grey halo. */
+    --shadow-sm: 0 1px 2px 0 hsl(222 47% 11% / 0.05);
+    --shadow-md:
+      0 1px 3px 0 hsl(222 47% 11% / 0.07), 0 1px 2px -1px hsl(222 47% 11% / 0.06);
+    --shadow-lg:
+      0 8px 24px -6px hsl(222 47% 11% / 0.12), 0 2px 6px -2px hsl(222 47% 11% / 0.06);
+  }
+
+  .dark {
+    --background: 224 30% 8%;
+    --foreground: 210 40% 96%;
+
+    --card: 224 26% 11%;
+    --card-foreground: 210 40% 96%;
+
+    --canvas: 224 32% 6%;
+
+    --popover: 224 26% 11%;
+    --popover-foreground: 210 40% 96%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 224 30% 8%;
+
+    --secondary: 223 20% 17%;
+    --secondary-foreground: 210 40% 96%;
+
+    --muted: 223 20% 17%;
+    --muted-foreground: 218 11% 65%;
+
+    --accent: 223 20% 17%;
+    --accent-foreground: 210 40% 96%;
+
+    --success: 142 60% 45%;
+    --warning: 38 92% 55%;
+    --destructive: 0 72% 58%;
+    --info: 199 89% 55%;
+
+    --border: 223 18% 20%;
+    --input: 223 18% 22%;
+    --ring: 217 91% 60%;
+
+    --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.3);
+    --shadow-md: 0 1px 3px 0 hsl(0 0% 0% / 0.4), 0 1px 2px -1px hsl(0 0% 0% / 0.3);
+    --shadow-lg: 0 8px 24px -6px hsl(0 0% 0% / 0.5), 0 2px 6px -2px hsl(0 0% 0% / 0.3);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-canvas text-foreground antialiased;
+    font-feature-settings:
+      'cv02' 1,
+      'cv03' 1,
+      'cv04' 1;
+  }
+
+  /* Tabular figures everywhere a number is compared to another number. Without
+     this, a column of amounts jitters as the digits change width and the eye
+     cannot scan it. */
+  .tabular,
+  td[data-numeric],
+  th[data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Focus is never removed, only restyled. Keyboard users are not optional. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Respect the OS setting. Anyone who has asked for less motion gets it. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Skeletons pulse rather than spin: a spinner tells you something is
+     happening, a skeleton tells you what is about to arrive. */
+  .skeleton {
+    @apply animate-pulse rounded-md bg-muted;
+  }
+
+  .card {
+    @apply rounded-xl border bg-card text-card-foreground;
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* A single grid definition used by every list screen, so the density of the
+     product is consistent rather than per-page. */
+  .data-row {
+    @apply grid items-center gap-4 border-b px-4 py-3 text-sm transition-colors last:border-b-0 hover:bg-muted/50;
+  }
+}

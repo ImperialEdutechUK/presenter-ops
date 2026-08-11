@@ -1,0 +1,1470 @@
+<!doctype html>
+<html lang="en-GB" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PresenterOps — interactive prototype</title>
+<style>
+/* ===========================================================================
+   PresenterOps — clickable prototype
+   ---------------------------------------------------------------------------
+   Single file, no build step, no network. Everything below mirrors the design
+   tokens in apps/web/src/styles/globals.css and the screens in apps/web/src/app,
+   so what you sign off here is what the developer builds.
+
+   The data is invented for demonstration. Nothing here is real.
+   =========================================================================== */
+
+:root{
+  --background:0 0% 100%; --foreground:222 47% 11%;
+  --card:0 0% 100%; --canvas:220 20% 97%;
+  --primary:221 83% 53%; --primary-fg:210 40% 98%;
+  --secondary:220 14% 96%; --muted:220 14% 96%; --muted-fg:220 9% 46%;
+  --success:142 71% 36%; --warning:38 92% 45%; --destructive:0 72% 51%; --info:199 89% 44%;
+  --border:220 13% 91%; --input:220 13% 91%; --ring:221 83% 53%;
+  --radius:.625rem;
+  --shadow-sm:0 1px 2px 0 hsl(222 47% 11%/.05);
+  --shadow-md:0 1px 3px 0 hsl(222 47% 11%/.07),0 1px 2px -1px hsl(222 47% 11%/.06);
+  --shadow-lg:0 8px 24px -6px hsl(222 47% 11%/.12),0 2px 6px -2px hsl(222 47% 11%/.06);
+}
+[data-theme="dark"]{
+  --background:224 30% 8%; --foreground:210 40% 96%;
+  --card:224 26% 11%; --canvas:224 32% 6%;
+  --primary:217 91% 60%; --primary-fg:224 30% 8%;
+  --secondary:223 20% 17%; --muted:223 20% 17%; --muted-fg:218 11% 65%;
+  --success:142 60% 45%; --warning:38 92% 55%; --destructive:0 72% 58%; --info:199 89% 55%;
+  --border:223 18% 20%; --input:223 18% 22%; --ring:217 91% 60%;
+  --shadow-sm:0 1px 2px 0 hsl(0 0% 0%/.3);
+  --shadow-md:0 1px 3px 0 hsl(0 0% 0%/.4);
+  --shadow-lg:0 8px 24px -6px hsl(0 0% 0%/.5);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  background:hsl(var(--canvas)); color:hsl(var(--foreground));
+  font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased;
+}
+.tabular{font-variant-numeric:tabular-nums}
+:focus-visible{outline:2px solid hsl(var(--ring));outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* --- layout --------------------------------------------------------------- */
+.app{display:flex;min-height:100vh}
+.sidebar{
+  width:232px;flex-shrink:0;background:hsl(var(--background));
+  border-right:1px solid hsl(var(--border));position:sticky;top:0;height:100vh;
+  display:flex;flex-direction:column;
+}
+.brand{display:flex;align-items:center;gap:8px;height:56px;padding:0 16px;border-bottom:1px solid hsl(var(--border))}
+.brand-mark{width:28px;height:28px;border-radius:6px;background:hsl(var(--primary));color:hsl(var(--primary-fg));
+  display:grid;place-items:center;font-size:11px;font-weight:700}
+.nav{padding:12px;display:flex;flex-direction:column;gap:2px;flex:1}
+.nav a{
+  display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;
+  color:hsl(var(--muted-fg));text-decoration:none;font-weight:500;font-size:13px;
+  transition:background .12s,color .12s;
+}
+.nav a:hover{background:hsl(var(--muted));color:hsl(var(--foreground))}
+.nav a.active{background:hsl(var(--primary)/.1);color:hsl(var(--primary))}
+.nav svg{width:16px;height:16px;flex-shrink:0}
+.search-btn{margin:12px;display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid hsl(var(--border));
+  border-radius:6px;background:none;color:hsl(var(--muted-fg));font:inherit;font-size:13px;cursor:pointer;width:calc(100% - 24px)}
+.search-btn:hover{background:hsl(var(--muted))}
+kbd{border:1px solid hsl(var(--border));background:hsl(var(--muted));border-radius:4px;padding:1px 5px;
+  font-family:ui-monospace,monospace;font-size:10px}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{
+  position:sticky;top:0;z-index:20;height:56px;display:flex;align-items:center;gap:10px;padding:0 20px;
+  background:hsl(var(--background)/.85);backdrop-filter:blur(8px);border-bottom:1px solid hsl(var(--border));
+}
+.content{padding:24px;max-width:1500px;width:100%}
+
+/* --- primitives ----------------------------------------------------------- */
+.card{background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:12px;box-shadow:var(--shadow-sm)}
+.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:18px 20px 10px}
+.card-head h3{font-size:15px;font-weight:600}
+.card-head p{font-size:13px;color:hsl(var(--muted-fg));margin-top:2px}
+.card-body{padding:0 20px 18px}
+.card-body.flush{padding:0}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;padding:0 16px;
+  border-radius:6px;border:1px solid transparent;font:inherit;font-size:13px;font-weight:500;cursor:pointer;
+  transition:background .12s,box-shadow .12s;white-space:nowrap}
+.btn svg{width:15px;height:15px}
+.btn-primary{background:hsl(var(--primary));color:hsl(var(--primary-fg));box-shadow:var(--shadow-sm)}
+.btn-primary:hover{background:hsl(var(--primary)/.9)}
+.btn-outline{border-color:hsl(var(--border));background:hsl(var(--background));color:hsl(var(--foreground))}
+.btn-outline:hover{background:hsl(var(--muted))}
+.btn-ghost{background:none;color:hsl(var(--muted-fg))}
+.btn-ghost:hover{background:hsl(var(--muted));color:hsl(var(--foreground))}
+.btn-success{background:hsl(var(--success));color:#fff}
+.btn-danger{background:hsl(var(--destructive));color:#fff}
+.btn-sm{height:30px;padding:0 11px;font-size:12px}
+.btn-icon{width:36px;padding:0}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+.badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:500;
+  background:hsl(var(--secondary));color:hsl(var(--foreground))}
+.badge-primary{background:hsl(var(--primary)/.12);color:hsl(var(--primary))}
+.badge-success{background:hsl(var(--success)/.12);color:hsl(var(--success))}
+.badge-warning{background:hsl(var(--warning)/.14);color:hsl(var(--warning))}
+.badge-danger{background:hsl(var(--destructive)/.12);color:hsl(var(--destructive))}
+.badge-info{background:hsl(var(--info)/.12);color:hsl(var(--info))}
+.chip{display:inline-flex;align-items:center;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:500}
+
+input,select,textarea{
+  width:100%;height:36px;border:1px solid hsl(var(--input));border-radius:6px;background:hsl(var(--background));
+  color:hsl(var(--foreground));padding:0 11px;font:inherit;font-size:13px;box-shadow:var(--shadow-sm)}
+textarea{height:auto;padding:9px 11px;resize:vertical}
+input::placeholder,textarea::placeholder{color:hsl(var(--muted-fg))}
+label.field{display:block;margin-bottom:14px}
+label.field>span.lbl{display:block;font-size:13px;font-weight:500;margin-bottom:6px}
+label.field .opt{font-weight:400;color:hsl(var(--muted-fg));font-size:11px;margin-left:6px}
+label.field .hint{display:block;font-size:11px;color:hsl(var(--muted-fg));margin-top:5px}
+.req{color:hsl(var(--destructive))}
+
+.avatar{border-radius:999px;display:grid;place-items:center;background:hsl(var(--muted));
+  color:hsl(var(--muted-fg));font-weight:600;flex-shrink:0;overflow:hidden}
+.avatar.xs{width:24px;height:24px;font-size:9px}
+.avatar.sm{width:32px;height:32px;font-size:11px}
+.avatar.md{width:40px;height:40px;font-size:12px}
+.avatar.lg{width:56px;height:56px;font-size:15px}
+.avatar.xl{width:80px;height:80px;font-size:22px}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;font-weight:500;
+  color:hsl(var(--muted-fg));padding:10px 16px;background:hsl(var(--muted)/.45);border-bottom:1px solid hsl(var(--border))}
+tbody td{padding:11px 16px;border-bottom:1px solid hsl(var(--border))}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:hsl(var(--muted)/.4)}
+.num{text-align:right}
+
+.page-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:22px}
+.page-head h1{font-size:26px;font-weight:600;letter-spacing:-.02em}
+.page-head p{font-size:13px;color:hsl(var(--muted-fg));margin-top:3px}
+.crumb{font-size:11px;color:hsl(var(--muted-fg));margin-bottom:5px}
+.crumb a{color:inherit}
+
+.grid{display:grid;gap:12px}
+.stats{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.stat{background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:12px;padding:14px 16px;
+  box-shadow:var(--shadow-sm);position:relative;cursor:help}
+.stat .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:hsl(var(--muted-fg));font-weight:500}
+.stat .v{font-size:26px;font-weight:600;margin-top:6px;letter-spacing:-.02em}
+.stat .s{font-size:11px;color:hsl(var(--muted-fg));margin-top:2px}
+.stat.good .v{color:hsl(var(--success))}
+.stat.warn .v{color:hsl(var(--warning))}
+.stat.bad .v{color:hsl(var(--destructive))}
+
+/* tooltips: pure CSS so the prototype needs no library */
+[data-tip]{position:relative}
+[data-tip]:hover::after,[data-tip]:focus-visible::after{
+  content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);left:0;z-index:60;
+  background:hsl(var(--foreground));color:hsl(var(--background));padding:7px 10px;border-radius:6px;
+  font-size:11.5px;font-weight:400;line-height:1.4;width:max-content;max-width:290px;
+  box-shadow:var(--shadow-lg);white-space:normal;text-transform:none;letter-spacing:0;
+}
+
+.row{display:flex;align-items:center;gap:12px;padding:11px 20px;border-bottom:1px solid hsl(var(--border));
+  text-decoration:none;color:inherit;transition:background .12s}
+.row:last-child{border-bottom:none}
+.row:hover{background:hsl(var(--muted)/.5)}
+.muted{color:hsl(var(--muted-fg))}
+.small{font-size:11.5px}
+.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+
+.tabs{display:flex;gap:2px;border-bottom:1px solid hsl(var(--border));margin-bottom:18px}
+.tabs button{background:none;border:none;border-bottom:2px solid transparent;padding:9px 12px;font:inherit;
+  font-size:13px;font-weight:500;color:hsl(var(--muted-fg));cursor:pointer;margin-bottom:-1px}
+.tabs button:hover{color:hsl(var(--foreground))}
+.tabs button.active{border-bottom-color:hsl(var(--primary));color:hsl(var(--foreground))}
+
+.empty{border:1px dashed hsl(var(--border));border-radius:12px;padding:48px 24px;text-align:center}
+.empty h4{font-size:15px;font-weight:600}
+.empty p{font-size:13px;color:hsl(var(--muted-fg));margin-top:4px;max-width:380px;margin-inline:auto}
+
+/* --- board ---------------------------------------------------------------- */
+.board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.col-head{display:flex;align-items:center;gap:8px;padding:0 4px;margin-bottom:6px}
+.col-head h2{font-size:13px;font-weight:600}
+.dot{width:8px;height:8px;border-radius:999px}
+.job{background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:10px;padding:12px;
+  box-shadow:var(--shadow-sm);cursor:pointer;transition:box-shadow .12s;margin-bottom:8px;display:block;
+  text-align:left;width:100%;font:inherit;color:inherit}
+.job:hover{box-shadow:var(--shadow-md)}
+.job h4{font-size:13px;font-weight:500;margin:4px 0 0;line-height:1.35}
+
+/* --- workload bar --------------------------------------------------------- */
+.bar{position:relative;height:8px;border-radius:999px;background:hsl(var(--muted));overflow:hidden;margin-top:8px}
+.bar span{display:block;height:100%;border-radius:999px;transition:width .3s}
+.bar .mark{position:absolute;top:0;bottom:0;left:50%;width:1px;background:hsl(var(--foreground)/.4)}
+
+/* --- combobox ------------------------------------------------------------- */
+.combo{position:relative}
+.combo-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;height:36px;
+  border:1px solid hsl(var(--input));border-radius:6px;background:hsl(var(--background));padding:0 11px;
+  font:inherit;font-size:13px;cursor:pointer;width:100%;color:inherit;box-shadow:var(--shadow-sm)}
+.combo-pop{position:absolute;z-index:50;top:calc(100% + 4px);left:0;right:0;background:hsl(var(--card));
+  border:1px solid hsl(var(--border));border-radius:10px;box-shadow:var(--shadow-lg);overflow:hidden}
+.combo-pop input{border:none;border-bottom:1px solid hsl(var(--border));border-radius:0;box-shadow:none;height:40px}
+.combo-list{max-height:230px;overflow-y:auto;padding:4px}
+.combo-item{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:6px;cursor:pointer;font-size:13px}
+.combo-item:hover,.combo-item.hl{background:hsl(var(--muted))}
+.combo-note{padding:6px 9px;font-size:11px;color:hsl(var(--muted-fg))}
+
+/* --- palette -------------------------------------------------------------- */
+.overlay{position:fixed;inset:0;background:hsl(var(--foreground)/.3);backdrop-filter:blur(3px);z-index:80;display:none}
+.overlay.open{display:block}
+.palette{position:fixed;top:96px;left:50%;transform:translateX(-50%);width:min(560px,calc(100vw - 32px));
+  background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:12px;box-shadow:var(--shadow-lg);
+  z-index:81;display:none;overflow:hidden}
+.palette.open{display:block}
+.palette input{border:none;border-bottom:1px solid hsl(var(--border));border-radius:0;height:48px;box-shadow:none;font-size:14px}
+.palette-list{max-height:320px;overflow-y:auto;padding:6px}
+.palette-group{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:hsl(var(--muted-fg));padding:8px 9px 4px}
+.palette-item{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:6px;cursor:pointer;font-size:13px}
+.palette-item:hover,.palette-item.hl{background:hsl(var(--muted))}
+
+.banner{background:hsl(var(--primary)/.08);border-bottom:1px solid hsl(var(--primary)/.2);
+  padding:9px 20px;font-size:12px;color:hsl(var(--primary));display:flex;gap:10px;align-items:center;justify-content:center}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+@media(max-width:1100px){.board{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:820px){.sidebar{display:none}.board{grid-template-columns:1fr}.content{padding:16px}}
+</style>
+</head>
+<body>
+
+<div class="banner">
+  <strong>Interactive prototype</strong>
+  <span>Click anything. Press <kbd>⌘K</kbd> or <kbd>/</kbd> to search. All data below is invented for demonstration.</span>
+</div>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">PO</div>
+      <strong style="font-size:13px">PresenterOps</strong>
+    </div>
+    <nav class="nav" id="nav" aria-label="Main"></nav>
+    <button class="search-btn" onclick="openPalette()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <span style="flex:1;text-align:left">Search</span><kbd>⌘K</kbd>
+    </button>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div style="flex:1"></div>
+      <button class="btn btn-primary btn-sm" onclick="go('assignment-new')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        New assignment
+      </button>
+      <button class="btn btn-ghost btn-icon" onclick="toggleTheme()" aria-label="Toggle dark mode" id="themeBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+      </button>
+      <div style="display:flex;align-items:center;gap:8px;border-left:1px solid hsl(var(--border));padding-left:12px">
+        <div class="avatar sm">JP</div>
+        <div style="line-height:1.25">
+          <div style="font-size:12px;font-weight:500">Jo Producer</div>
+          <div class="small muted">Producer</div>
+        </div>
+      </div>
+    </header>
+    <main class="content" id="view"></main>
+  </div>
+</div>
+
+<div class="overlay" id="overlay" onclick="closePalette()"></div>
+<div class="palette" id="palette" role="dialog" aria-label="Search and commands">
+  <input id="paletteInput" placeholder="Search presenters and work, or jump to a screen…" autocomplete="off" />
+  <div class="palette-list" id="paletteList"></div>
+</div>
+
+<script>
+/* ===========================================================================
+   DATA — invented for demonstration. Mirrors apps/api/prisma/seed.ts, and is
+   deliberately lopsided so the workload screen has something real to show.
+   =========================================================================== */
+const BRANDS = [
+  {id:'b1', name:'Aspirex',              color:'#2563EB'},
+  {id:'b2', name:'South London College', color:'#16A34A'},
+  {id:'b3', name:'Imperial Audio Tech',  color:'#7C3AED'},
+  {id:'b4', name:'Selector',             color:'#EA580C'},
+];
+
+const PRESENTERS = [
+  {id:'p1', name:'Amara Okafor',    loc:'London',     rate:28000, unit:'per video', weight:1,   target:8, brands:['b1','b4'],
+   tags:['on-camera','finance','autocue'], rating:4.6, turnaround:'3d 4h', onTime:92, done:12, active:2, last:'2 days ago',
+   bio:'Business and finance presenter. Ten years in broadcast, comfortable with autocue and complex numbers.'},
+  {id:'p2', name:'Daniel Whitfield',loc:'Manchester', rate:22000, unit:'per video', weight:1,   target:8, brands:['b2','b1'],
+   tags:['on-camera','education','owns studio'], rating:4.2, turnaround:'5d 2h', onTime:78, done:6, active:2, last:'1 day ago',
+   bio:'Former lecturer. Specialises in longer-form course modules and explainers.'},
+  {id:'p3', name:'Priya Raghavan',  loc:'Birmingham', rate:9000,  unit:'per hour',  weight:0.5, target:4, brands:['b3'],
+   tags:['voice only','technology'], rating:4.8, turnaround:'2d 1h', onTime:100, done:5, active:0, last:'11 days ago',
+   bio:'Voiceover artist working part time. Technology and audio hardware background.'},
+  {id:'p4', name:'Tom Beresford',   loc:'Leeds',      rate:35000, unit:'per day',   weight:1,   target:6, brands:['b3','b4','b1'],
+   tags:['on-camera','technology','owns studio'], rating:4.4, turnaround:'2d 6h', onTime:88, done:9, active:2, last:'2 days ago',
+   bio:'Product demo specialist with a home studio. Fast turnaround on short-form.'},
+  {id:'p5', name:'Elena Marchetti', loc:'Brighton',   rate:26000, unit:'per video', weight:1,   target:8, brands:['b2'],
+   tags:['on-camera','RP accent','education'], rating:4.0, turnaround:'6d 3h', onTime:60, done:1, active:0, last:'26 days ago',
+   bio:'Education and lifestyle presenter.'},
+  {id:'p6', name:'Marcus Hale',     loc:'Glasgow',    rate:24000, unit:'per video', weight:1,   target:6, brands:['b1','b2'],
+   tags:['on-camera','BSL'], rating:4.5, turnaround:'4d', onTime:100, done:1, active:0, last:'58 days ago', paused:true,
+   bio:'Accessible-content specialist. BSL fluent.'},
+];
+
+const JOBS = [
+  {ref:'ASP-0014', title:'Autumn intake explainer — 3 videos', brand:'b1', p:'p1', status:'IN_PROGRESS', due:'+3d', count:3, fee:84000, scripts:2, turnaround:null, priority:'HIGH'},
+  {ref:'ASP-0013', title:'Finance module Q&A', brand:'b1', p:'p1', status:'IN_REVIEW', due:'-1d', count:2, fee:56000, scripts:1, turnaround:'4d 2h'},
+  {ref:'IAT-0009', title:'Headphone range product demo', brand:'b3', p:'p4', status:'SUBMITTED', due:'+1d', count:2, fee:70000, scripts:1, turnaround:'2d 8h'},
+  {ref:'IAT-0010', title:'Studio monitor walkthrough', brand:'b3', p:'p4', status:'ACCEPTED', due:'+9d', count:2, fee:70000, scripts:0, turnaround:null},
+  {ref:'SLC-0007', title:'Access to HE — module 4', brand:'b2', p:'p2', status:'REVISIONS_REQUESTED', due:'-2d', count:2, fee:44000, scripts:3, turnaround:'6d'},
+  {ref:'ASP-0015', title:'Careers advice short', brand:'b1', p:'p2', status:'ASSIGNED', due:'+6d', count:1, fee:22000, scripts:1, turnaround:null},
+  {ref:'SEL-0004', title:'Brand refresh social cuts', brand:'b4', p:null, status:'DRAFT', due:'+14d', count:5, fee:null, scripts:0, turnaround:null},
+  {ref:'SEL-0003', title:'Recruiter testimonial set', brand:'b4', p:'p1', status:'COMPLETED', due:'-18d', count:5, fee:140000, scripts:1, turnaround:'3d 1h'},
+  {ref:'IAT-0008', title:'Cable range explainer', brand:'b3', p:'p3', status:'COMPLETED', due:'-11d', count:2, fee:18000, scripts:1, turnaround:'2d 1h'},
+  {ref:'SLC-0006', title:'Open day welcome', brand:'b2', p:'p5', status:'COMPLETED', due:'-26d', count:1, fee:26000, scripts:1, turnaround:'6d 3h'},
+  {ref:'ASP-0012', title:'Pensions explainer', brand:'b1', p:'p1', status:'COMPLETED', due:'-27d', count:3, fee:84000, scripts:1, turnaround:'3d 6h'},
+];
+
+const STATUS_LABEL = {
+  DRAFT:'Draft', ASSIGNED:'Awaiting response', ACCEPTED:'Accepted', IN_PROGRESS:'In progress',
+  SUBMITTED:'Submitted', IN_REVIEW:'In review', REVISIONS_REQUESTED:'Revisions requested',
+  APPROVED:'Approved', COMPLETED:'Completed', DECLINED:'Declined', CANCELLED:'Cancelled',
+};
+const STATUS_CLASS = {
+  DRAFT:'badge', ASSIGNED:'badge badge-info', ACCEPTED:'badge badge-info', IN_PROGRESS:'badge badge-primary',
+  SUBMITTED:'badge badge-warning', IN_REVIEW:'badge badge-warning', REVISIONS_REQUESTED:'badge badge-danger',
+  APPROVED:'badge badge-success', COMPLETED:'badge badge-success', DECLINED:'badge', CANCELLED:'badge',
+};
+
+/* --- helpers -------------------------------------------------------------- */
+const brand = id => BRANDS.find(b => b.id === id);
+const presenter = id => PRESENTERS.find(p => p.id === id);
+const initials = n => n.split(' ').slice(0,2).map(w => w[0]).join('').toUpperCase();
+const money = (minor, compact) => minor == null ? '—'
+  : new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',
+      notation:compact?'compact':'standard',maximumFractionDigits:compact?1:2,minimumFractionDigits:compact?0:2}).format(minor/100);
+
+// Readable text on a brand colour, via WCAG relative luminance.
+function textOn(hex){
+  const c = hex.replace('#','');
+  const [r,g,b] = [0,2,4].map(i => parseInt(c.substr(i,2),16)/255);
+  const ch = v => v<=.03928 ? v/12.92 : Math.pow((v+.055)/1.055,2.4);
+  return (.2126*ch(r)+.7152*ch(g)+.0722*ch(b)) > .179 ? '#000' : '#fff';
+}
+const chip = b => `<span class="chip" style="background:${b.color};color:${textOn(b.color)}">${b.name}</span>`;
+const avatar = (name, size='sm') => `<div class="avatar ${size}">${initials(name)}</div>`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function dueLabel(due, status){
+  const days = parseInt(due,10);
+  const closed = ['COMPLETED','APPROVED','CANCELLED','DECLINED'].includes(status);
+  if (closed) return `<span class="small muted">delivered</span>`;
+  if (days < 0) return `<span class="small" style="color:hsl(var(--destructive));font-weight:500">${Math.abs(days)}d overdue</span>`;
+  if (days <= 2) return `<span class="small" style="color:hsl(var(--warning));font-weight:500">due in ${days}d</span>`;
+  return `<span class="small muted">due in ${days}d</span>`;
+}
+
+const NAV = [
+  {id:'dashboard',  label:'Dashboard',  icon:'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z'},
+  {id:'work',       label:'Work',       icon:'M9 2h6v4H9zM4 6h16v15H4z'},
+  {id:'presenters', label:'Presenters', icon:'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0 .01M22 21v-2a4 4 0 0 0-3-3.87'},
+  {id:'workload',   label:'Workload',   icon:'M12 3v18M3 7h18M6 7l-3 6h6zM18 7l-3 6h6z'},
+  {id:'portal',     label:'Presenter portal', icon:'M4 4h16v16H4zM4 9h16'},
+];
+
+/* ===========================================================================
+   ROUTING
+   =========================================================================== */
+let route = 'dashboard', param = null;
+const state = { presenterView:'cards', workView:'board', tab:'work', jobTab:'brief', jobStatus:{}, wlDays:30 };
+
+function go(r, p){ route = r; param = p ?? null; window.scrollTo(0,0); render(); }
+
+// Which nav item lights up for each route. An explicit map rather than a
+// prefix test, because 'workload' starts with 'work' and prefix matching
+// would highlight two items at once.
+const NAV_FOR_ROUTE = {
+  dashboard:'dashboard',
+  work:'work', assignment:'work', 'assignment-new':'work',
+  presenters:'presenters', presenter:'presenters', 'presenter-new':'presenters',
+  workload:'workload', portal:'portal',
+};
+
+function renderNav(){
+  const current = NAV_FOR_ROUTE[route];
+  document.getElementById('nav').innerHTML = NAV.map(n => `
+    <a href="#" onclick="go('${n.id}');return false" class="${current===n.id?'active':''}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="${n.icon}"/></svg>${n.label}
+    </a>`).join('');
+}
+
+function render(){
+  renderNav();
+  const view = document.getElementById('view');
+  const map = {
+    dashboard: viewDashboard, work: viewWork, 'assignment': viewAssignment, 'assignment-new': viewAssignmentNew,
+    presenters: viewPresenters, presenter: viewPresenter, 'presenter-new': viewPresenterNew,
+    workload: viewWorkload, portal: viewPortal,
+  };
+  view.innerHTML = (map[route] || viewDashboard)();
+}
+
+/* ===========================================================================
+   DASHBOARD
+   =========================================================================== */
+function viewDashboard(){
+  const active = JOBS.filter(j => !['DRAFT','COMPLETED','APPROVED'].includes(j.status));
+  const overdue = active.filter(j => parseInt(j.due,10) < 0);
+  const committed = active.reduce((s,j) => s + (j.fee||0), 0);
+  const cold = PRESENTERS.filter(p => parseInt(p.last) > 10 || p.last.includes('58'));
+
+  return `
+  <div class="page-head">
+    <div><h1>Today</h1><p>Everything current as of 6 August 2026, 13:02.</p></div>
+    <button class="btn btn-outline btn-sm" onclick="go('workload')">Check workload balance</button>
+  </div>
+
+  <section class="grid stats" aria-label="Key figures">
+    ${stat('Active', active.length, '', 'Assignments with a presenter or in review — anything not draft, completed, cancelled or declined.')}
+    ${stat('Due this week', 3, '', 'Active assignments with a due date in the next seven days.','warn')}
+    ${stat('Overdue', overdue.length, '', 'Active assignments whose due date has passed with nothing submitted.','bad')}
+    ${stat('Awaiting reply', 1, '', 'Sent to a presenter who has not yet accepted or declined.')}
+    ${stat('To review', 2, '', 'Delivered by the presenter and waiting on an internal decision.')}
+    ${stat('Committed', money(committed,true), '', 'Total agreed fees on active assignments. Money promised, not yet paid.')}
+  </section>
+
+  <section class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));margin-top:12px">
+    ${stat('Median turnaround','3d 6h','From sending the job to the delivery link arriving',
+      'The middle value, not the average — one job that sat for months would drag an average somewhere useless. Calculated over work submitted in the last 30 days.')}
+    ${stat('Delivered on time','86%','Submitted on or before the due date',
+      'Of jobs submitted in the last 30 days that had a due date, the share that arrived on or before it. Jobs with no due date are excluded rather than counted as on time.','good')}
+  </section>
+
+  <div class="grid" style="grid-template-columns:2fr 1fr;margin-top:24px;align-items:start">
+    <div class="card">
+      <div class="card-head">
+        <div><h3>Needs attention</h3><p>Overdue, due within 48 hours, or sent more than two days ago with no reply.</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="go('work')">See all</button>
+      </div>
+      <div class="card-body flush" style="border-top:1px solid hsl(var(--border))">
+        ${active.filter(j => parseInt(j.due,10) < 2).map(j => {
+          const p = presenter(j.p);
+          return `<a class="row" href="#" onclick="go('assignment','${j.ref}');return false">
+            ${p ? avatar(p.name) : '<div class="avatar sm">?</div>'}
+            <div style="flex:1;min-width:0">
+              <div class="truncate" style="font-weight:500"><span class="muted tabular small">${j.ref}</span> ${esc(j.title)}</div>
+              <div class="small muted">${p ? p.name : 'Not assigned to anyone'}</div>
+            </div>
+            ${chip(brand(j.brand))}
+            <span class="${STATUS_CLASS[j.status]}">${STATUS_LABEL[j.status]}</span>
+            <span style="width:92px;text-align:right">${dueLabel(j.due, j.status)}</span>
+          </a>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <div style="display:grid;gap:16px">
+      <div class="card">
+        <div class="card-head"><div><h3>Going cold</h3><p>Active presenters with no work for a while.</p></div></div>
+        <div class="card-body flush" style="border-top:1px solid hsl(var(--border))">
+          ${cold.map(p => `<a class="row" href="#" onclick="go('presenter','${p.id}');return false">
+            ${avatar(p.name)}<span style="flex:1" class="truncate">${p.name}</span>
+            <span class="small muted">${p.last}</span></a>`).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h3>Contracts expiring</h3></div></div>
+        <div class="card-body flush" style="border-top:1px solid hsl(var(--border))">
+          <a class="row" href="#" onclick="go('presenter','p3');return false">
+            <span style="flex:1" class="truncate">Priya Raghavan <span class="muted">· Imperial Audio Tech</span></span>
+            <span class="small" style="color:hsl(var(--warning))">4 Sep 2026</span></a>
+          <a class="row" href="#" onclick="go('presenter','p5');return false">
+            <span style="flex:1" class="truncate">Elena Marchetti <span class="muted">· South London College</span></span>
+            <span class="small" style="color:hsl(var(--warning))">18 Sep 2026</span></a>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function stat(k, v, s, tip, tone=''){
+  return `<div class="stat ${tone}" data-tip="${esc(tip)}" tabindex="0">
+    <div class="k">${k}</div><div class="v tabular">${v}</div>${s?`<div class="s">${s}</div>`:''}</div>`;
+}
+
+/* ===========================================================================
+   WORK — board and table
+   =========================================================================== */
+const COLUMNS = [
+  {label:'Draft',         statuses:['DRAFT'],                            color:'hsl(var(--muted-fg))'},
+  {label:'With presenter',statuses:['ASSIGNED','ACCEPTED'],              color:'hsl(var(--info))'},
+  {label:'In production', statuses:['IN_PROGRESS','REVISIONS_REQUESTED'],color:'hsl(var(--primary))'},
+  {label:'To review',     statuses:['SUBMITTED','IN_REVIEW'],            color:'hsl(var(--warning))'},
+  {label:'Signed off',    statuses:['APPROVED','COMPLETED'],             color:'hsl(var(--success))'},
+];
+
+function viewWork(){
+  const board = state.workView === 'board';
+  return `
+  <div class="page-head">
+    <div><h1>Work</h1><p>${JOBS.length} assignments</p></div>
+    <div style="display:flex;gap:8px">
+      <div style="display:flex;border:1px solid hsl(var(--border));border-radius:6px;padding:2px">
+        <button class="btn btn-sm ${board?'btn-outline':'btn-ghost'}" onclick="state.workView='board';render()">Board</button>
+        <button class="btn btn-sm ${!board?'btn-outline':'btn-ghost'}" onclick="state.workView='table';render()">Table</button>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="go('assignment-new')">New assignment</button>
+    </div>
+  </div>
+
+  ${board ? `<div class="board">${COLUMNS.map(col => {
+    const items = JOBS.filter(j => col.statuses.includes(state.jobStatus[j.ref] || j.status));
+    const value = items.reduce((s,j) => s + (j.fee||0), 0);
+    return `<section aria-label="${col.label}">
+      <div class="col-head">
+        <span class="dot" style="background:${col.color}"></span>
+        <h2>${col.label}</h2><span class="badge tabular" style="margin-left:auto">${items.length}</span>
+      </div>
+      <p class="small muted tabular" style="padding:0 4px;margin-bottom:8px">${money(value,true)} committed</p>
+      ${items.map(j => {
+        const p = presenter(j.p), st = state.jobStatus[j.ref] || j.status;
+        return `<button class="job" onclick="go('assignment','${j.ref}')">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+            <span class="small muted tabular">${j.ref}</span>
+            ${j.priority==='HIGH'?'<span class="badge badge-warning">high</span>':''}
+          </div>
+          <h4>${esc(j.title)}</h4>
+          <div style="margin-top:8px">${chip(brand(j.brand))}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px">
+            ${p ? `<span style="display:flex;align-items:center;gap:6px;min-width:0">${avatar(p.name,'xs')}<span class="small truncate">${p.name}</span></span>`
+                : '<span class="badge badge-warning">Unassigned</span>'}
+            ${dueLabel(j.due, st)}
+          </div>
+          ${j.scripts ? `<div class="small muted" style="margin-top:8px;padding-top:8px;border-top:1px solid hsl(var(--border))">${j.scripts} script${j.scripts>1?'s':''} attached</div>`:''}
+        </button>`;
+      }).join('')}
+    </section>`;
+  }).join('')}</div>`
+  : `<div class="card" style="overflow:hidden">
+      <table>
+        <thead><tr><th>Ref</th><th>Title</th><th>Brand</th><th>Presenter</th><th>Status</th>
+        <th class="num">Turnaround</th><th class="num">Due</th><th class="num">Fee</th></tr></thead>
+        <tbody>${JOBS.map(j => {
+          const p = presenter(j.p), st = state.jobStatus[j.ref] || j.status;
+          return `<tr style="cursor:pointer" onclick="go('assignment','${j.ref}')">
+            <td class="tabular muted">${j.ref}</td>
+            <td style="font-weight:500">${esc(j.title)}</td>
+            <td>${chip(brand(j.brand))}</td>
+            <td>${p ? p.name : '<span class="muted">—</span>'}</td>
+            <td><span class="${STATUS_CLASS[st]}">${STATUS_LABEL[st]}</span></td>
+            <td class="num tabular">${j.turnaround || '—'}</td>
+            <td class="num">${dueLabel(j.due, st)}</td>
+            <td class="num tabular">${money(j.fee)}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>`}`;
+}
+
+/* ===========================================================================
+   ASSIGNMENT DETAIL
+   =========================================================================== */
+const NEXT_STEPS = {
+  DRAFT:[['ASSIGNED','Send to presenter','btn-success']],
+  ASSIGNED:[['ACCEPTED','Mark accepted','btn-success'],['DRAFT','Reassign','btn-outline']],
+  ACCEPTED:[['IN_PROGRESS','Start work','btn-outline']],
+  IN_PROGRESS:[['SUBMITTED','Record delivery','btn-success']],
+  SUBMITTED:[['IN_REVIEW','Start review','btn-outline'],['APPROVED','Approve','btn-success'],['REVISIONS_REQUESTED','Request revisions','btn-outline']],
+  IN_REVIEW:[['APPROVED','Approve','btn-success'],['REVISIONS_REQUESTED','Request revisions','btn-outline']],
+  REVISIONS_REQUESTED:[['SUBMITTED','Resubmit','btn-success']],
+  APPROVED:[['COMPLETED','Mark complete','btn-success']],
+  COMPLETED:[],
+};
+const STAGES = ['DRAFT','ASSIGNED','ACCEPTED','IN_PROGRESS','SUBMITTED','IN_REVIEW','APPROVED','COMPLETED'];
+
+function viewAssignment(){
+  const j = JOBS.find(x => x.ref === param) || JOBS[0];
+  const st = state.jobStatus[j.ref] || j.status;
+  const p = presenter(j.p);
+  const idx = STAGES.indexOf(st === 'REVISIONS_REQUESTED' ? 'IN_PROGRESS' : st);
+
+  const tabs = [['brief','Brief & scripts'],['delivery','Delivery'],['feedback','Feedback'],['performance','Performance'],['activity','Activity']];
+
+  return `
+  <div class="page-head">
+    <div>
+      <div class="crumb"><a href="#" onclick="go('work');return false">Work</a></div>
+      <h1>${esc(j.title)}</h1>
+      <p>${j.ref} · raised by Jo Producer 6 days ago</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">${chip(brand(j.brand))}<span class="${STATUS_CLASS[st]}">${STATUS_LABEL[st]}</span></div>
+  </div>
+
+  <div class="card" style="padding:14px 16px;margin-bottom:18px">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
+      ${STAGES.map((s,i) => `
+        <span class="badge ${i<idx?'badge-success':i===idx?'badge-primary':''}" style="${i===idx?'background:hsl(var(--primary));color:hsl(var(--primary-fg))':''}">
+          ${i<idx?'✓ ':''}${STATUS_LABEL[s]}</span>
+        ${i<STAGES.length-1?'<span style="width:12px;height:1px;background:hsl(var(--border))"></span>':''}`).join('')}
+      ${st==='REVISIONS_REQUESTED'?'<span class="badge badge-danger" style="margin-left:8px">Revisions requested</span>':''}
+      <span style="margin-left:auto;display:flex;gap:16px" class="small muted">
+        <span class="tabular" data-tip="Time between the job being sent and the presenter accepting it." tabindex="0">Replied in 5h</span>
+        <span class="tabular" data-tip="Time between the job being sent and the delivery link arriving." tabindex="0">Turnaround ${j.turnaround||'—'}</span>
+      </span>
+    </div>
+  </div>
+
+  <div class="grid" style="grid-template-columns:1fr 300px;align-items:start">
+    <div>
+      <div class="tabs">${tabs.map(([id,label]) =>
+        `<button class="${state.jobTab===id?'active':''}" onclick="state.jobTab='${id}';render()">${label}</button>`).join('')}</div>
+      ${jobTabContent(j, st)}
+    </div>
+
+    <aside style="display:grid;gap:16px;position:sticky;top:76px">
+      <div class="card" style="padding:16px">
+        <h3 style="font-size:13px;font-weight:600;margin-bottom:10px">What happens next</h3>
+        <div style="display:grid;gap:8px">
+          ${(NEXT_STEPS[st]||[]).map(([to,label,cls]) =>
+            `<button class="btn ${cls}" style="justify-content:flex-start" onclick="setStatus('${j.ref}','${to}')">${label}</button>`).join('')
+            || '<p class="small muted">This assignment is closed. Nothing further to do.</p>'}
+        </div>
+      </div>
+
+      <div class="card" style="padding:16px">
+        <h3 style="font-size:13px;font-weight:600;margin-bottom:12px">Details</h3>
+        <dl style="display:grid;gap:11px;font-size:13px">
+          ${detail('Presenter', p ? `<a href="#" onclick="go('presenter','${p.id}');return false" style="display:flex;align-items:center;gap:6px;justify-content:flex-end;color:inherit">${avatar(p.name,'xs')}${p.name}</a>` : '<span class="badge badge-warning">Not assigned</span>')}
+          ${detail('Deliverables', `${j.count} video${j.count>1?'s':''}`)}
+          ${detail('Fee', `<span class="tabular">${money(p?p.rate:null)} <span class="small muted">${p?p.unit:''}</span></span>`)}
+          ${detail('Total', `<span class="tabular" style="font-weight:600">${money(j.fee)}</span>`)}
+          ${detail('Due', dueLabel(j.due, st))}
+          ${detail('Turnaround', `<span class="tabular">${j.turnaround||'—'}</span>`)}
+          ${detail('Scripts', j.scripts)}
+        </dl>
+      </div>
+    </aside>
+  </div>`;
+}
+
+const detail = (k,v) => `<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+  <dt class="small muted" style="text-transform:uppercase;letter-spacing:.04em">${k}</dt><dd style="text-align:right">${v}</dd></div>`;
+
+function jobTabContent(j, st){
+  if (state.jobTab === 'brief') return `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head"><div><h3>The brief</h3></div></div>
+      <div class="card-body"><p style="line-height:1.6">Read the attached script to camera. Neutral background, brand lower-third supplied separately. Three cuts needed: 60s, 30s and 15s.</p></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div><h3>Scripts from marketing</h3><p>Uploading a new version keeps the old one on record; the presenter only ever sees the current one.</p></div>
+        <button class="btn btn-outline btn-sm">Upload script</button>
+      </div>
+      <div class="card-body flush" style="border-top:1px solid hsl(var(--border))">
+        ${j.scripts ? Array.from({length:j.scripts}).map((_,i) => `
+          <div class="row">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="16" height="16" class="muted"><path d="M14 2H6v20h12V8z"/><path d="M14 2v6h6"/></svg>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:500">autumn-intake-script-v${j.scripts-i}.docx</div>
+              <div class="small muted">v${j.scripts-i} · Sam Marketing · 1 Aug 2026 · 0.2 MB</div>
+            </div>
+            ${i>0?'<span class="badge">superseded</span>':''}
+            <button class="btn btn-outline btn-sm">Open</button>
+          </div>`).join('')
+        : `<div style="padding:20px"><div class="empty"><h4>No script attached</h4><p>Upload the script marketing supplied so the presenter has it in their portal.</p></div></div>`}
+      </div>
+    </div>`;
+
+  if (state.jobTab === 'delivery') return `
+    <div class="card">
+      <div class="card-head"><div><h3>Finished files</h3><p>Videos stay in OneDrive or SharePoint. The system holds the link, not the file.</p></div></div>
+      <div class="card-body">
+        ${['SUBMITTED','IN_REVIEW','APPROVED','COMPLETED'].includes(st) ? `
+          <a href="#" onclick="return false" style="display:flex;gap:12px;align-items:center;border:1px solid hsl(var(--border));border-radius:10px;padding:14px;text-decoration:none;color:inherit">
+            <svg viewBox="0 0 24 24" fill="none" stroke="hsl(var(--primary))" stroke-width="1.8" width="20" height="20"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:500">Open the delivered files</div>
+              <div class="small muted truncate">https://imperiallearning-my.sharepoint.com/:f:/g/personal/…/ASP-0013-finals</div>
+            </div>
+          </a>`
+        : `<label class="field"><span class="lbl">OneDrive or SharePoint link<span class="opt">Optional</span></span>
+             <div style="display:flex;gap:8px"><input placeholder="https://yourcompany-my.sharepoint.com/…" />
+             <button class="btn btn-primary" style="flex-shrink:0">Record delivery</button></div>
+             <span class="hint">Paste the folder link once the presenter has uploaded.</span></label>`}
+      </div>
+    </div>`;
+
+  if (state.jobTab === 'feedback') return `
+    <div class="card">
+      <div class="card-head"><div><h3>Record feedback</h3><p>Kept internal unless you tick the box. Feeds the presenter's average rating either way.</p></div></div>
+      <div class="card-body">
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+          ${['Overall','Delivery to camera','Stuck to the script','Professionalism','Timeliness','Production quality'].map((d,i) => `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+              <span>${d}${i===0?'<span class="req"> *</span>':''}</span>
+              <span style="display:flex;gap:2px">${[1,2,3,4,5].map(n =>
+                `<span style="color:${n<=(i===0?4:3+(i%2))?'hsl(var(--warning))':'hsl(var(--muted-fg)/.35)'};font-size:16px;cursor:pointer">★</span>`).join('')}</span>
+            </div>`).join('')}
+        </div>
+        <label class="field"><span class="lbl">What went well, what to change<span class="opt">Optional</span></span>
+          <textarea rows="3" placeholder="Specific beats general."></textarea></label>
+        <label style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+          <input type="checkbox" style="width:16px;height:16px" /> Share this with the presenter in their portal</label>
+        <div style="display:flex;justify-content:flex-end"><button class="btn btn-primary">Save feedback</button></div>
+      </div>
+    </div>`;
+
+  if (state.jobTab === 'performance') return `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head"><div><h3>Add a measurement</h3><p>Figures are snapshots, not overwrites. A second reading later builds a curve rather than replacing the first.</p></div></div>
+      <div class="card-body">
+        <div class="grid" style="grid-template-columns:repeat(4,1fr);gap:10px">
+          ${[['Platform','select'],['Measured on','date'],['Views','number'],['Impressions','number'],
+             ['Watch time (min)','number'],['Likes','number'],['Clicks','number'],['Conversions','number']].map(([l,t]) => `
+            <label class="field" style="margin:0"><span class="lbl">${l}</span>
+            ${t==='select'?'<select><option>YouTube</option><option>Meta</option><option>LinkedIn</option><option>TikTok</option></select>':`<input type="${t}" class="tabular" />`}</label>`).join('')}
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn btn-primary">Record figures</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div><h3>Recorded</h3></div></div>
+      <div class="card-body flush">
+        <table><thead><tr><th>Platform</th><th>Measured</th><th class="num">Views</th><th class="num">Engagement</th><th class="num">Cost / 1k views</th></tr></thead>
+        <tbody>
+          <tr><td>YouTube</td><td>4 Aug 2026</td><td class="num tabular">18,420</td><td class="num tabular">4.9%</td>
+              <td class="num tabular" data-tip="The presenter's fee divided by views, scaled to a thousand views. A rough cost-effectiveness figure, not a full cost per acquisition." tabindex="0">£30.40</td></tr>
+          <tr><td>YouTube</td><td>21 Jul 2026</td><td class="num tabular">9,110</td><td class="num tabular">5.2%</td><td class="num tabular">£61.47</td></tr>
+          <tr><td>LinkedIn</td><td>4 Aug 2026</td><td class="num tabular">3,260</td><td class="num tabular">7.1%</td><td class="num tabular">£171.78</td></tr>
+        </tbody></table>
+      </div>
+    </div>`;
+
+  return `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head"><div><h3>Conversation</h3></div></div>
+      <div class="card-body">
+        <div style="display:flex;gap:12px;margin-bottom:14px">
+          ${avatar('Jo Producer')}
+          <div><div style="font-weight:500">Jo Producer <span class="small muted" style="font-weight:400">2 days ago</span></div>
+          <p style="margin-top:2px">Script v2 is up — the compliance line on page 3 changed. Everything else is the same.</p></div>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:16px">
+          ${avatar('Amara Okafor')}
+          <div><div style="font-weight:500">Amara Okafor <span class="small muted" style="font-weight:400">1 day ago</span></div>
+          <p style="margin-top:2px">Got it. Filming Thursday morning, should have the cuts over by Friday.</p></div>
+        </div>
+        <textarea rows="2" placeholder="Add a note…"></textarea>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
+          <button class="btn btn-outline btn-sm">Post as internal note</button>
+          <button class="btn btn-primary btn-sm">Send to presenter</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div><h3>History</h3></div></div>
+      <div class="card-body flush" style="border-top:1px solid hsl(var(--border))">
+        ${[['6 Aug 2026, 09:14','Jo Producer','attached a file'],
+           ['4 Aug 2026, 16:02','Amara Okafor','moved this from accepted to in progress'],
+           ['4 Aug 2026, 11:20','Amara Okafor','moved this from awaiting response to accepted'],
+           ['4 Aug 2026, 06:31','Jo Producer','moved this from draft to awaiting response'],
+           ['3 Aug 2026, 17:45','Jo Producer','created this assignment']].map(([d,who,what]) =>
+          `<div class="row"><span class="small muted" style="width:150px;flex-shrink:0">${d}</span>
+           <span>${who} <span class="muted">${what}</span></span></div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function setStatus(ref, to){ state.jobStatus[ref] = to; render(); }
+
+/* ===========================================================================
+   NEW ASSIGNMENT — with the suggestion rail
+   =========================================================================== */
+const SUGGESTIONS = [
+  {id:'p6', score:88.5, why:[['Under-allocated','36.0','40','Balance index 0.10 (1.00 = exactly their fair share)'],
+    ['Time since last assigned','20.0','20','58 days ago'],['Feedback rating','17.5','20','Average 4.50 / 5'],
+    ['On-time delivery','20.0','20','100% delivered on or before the due date']]},
+  {id:'p2', score:61.2, why:[['Under-allocated','22.0','40','Balance index 0.90'],
+    ['Time since last assigned','0.3','20','1 day ago'],['Feedback rating','16.0','20','Average 4.20 / 5'],
+    ['On-time delivery','15.6','20','78% delivered on or before the due date']]},
+  {id:'p1', score:44.0, why:[['Under-allocated','0.0','40','Balance index 2.10 — already over their fair share'],
+    ['Time since last assigned','0.7','20','2 days ago'],['Feedback rating','18.0','20','Average 4.60 / 5'],
+    ['On-time delivery','18.4','20','92% delivered on or before the due date']]},
+];
+
+function viewAssignmentNew(){
+  return `
+  <div class="page-head"><div><div class="crumb">Work / New</div><h1>New assignment</h1></div></div>
+
+  <div class="grid" style="grid-template-columns:1fr 330px;align-items:start">
+    <div style="display:grid;gap:16px">
+      <div class="card">
+        <div class="card-head"><div><h3>The job</h3></div></div>
+        <div class="card-body">
+          <label class="field"><span class="lbl">Title<span class="req"> *</span></span>
+            <input value="Autumn intake explainer — 3 videos" /></label>
+          <div class="grid" style="grid-template-columns:1fr 1fr">
+            <label class="field"><span class="lbl">Brand or website<span class="req"> *</span></span>
+              ${combobox('brandCombo','Aspirex, South London College, Selector…','brand')}
+              <span class="hint">Type a name that does not exist yet and you will be offered <strong>Create “…”</strong>.</span></label>
+            <label class="field"><span class="lbl">Type of work<span class="opt">Optional</span></span>
+              ${combobox('typeCombo','Talking head, voiceover…','work type')}</label>
+          </div>
+          <label class="field"><span class="lbl">Brief<span class="opt">Optional</span></span>
+            <textarea rows="4" placeholder="What the presenter needs to know. The script is attached separately."></textarea></label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div><h3>Scope, timing and fee</h3></div></div>
+        <div class="card-body">
+          <div class="grid" style="grid-template-columns:1fr 1fr">
+            <label class="field"><span class="lbl">How many videos<span class="req"> *</span></span><input class="tabular" type="number" value="3" /></label>
+            <label class="field"><span class="lbl">Due by<span class="req"> *</span></span><input type="date" value="2026-08-20" />
+              <span class="hint">Turnaround is measured against this.</span></label>
+            <label class="field"><span class="lbl">Priority<span class="opt">Optional</span></span>
+              <select><option>Low</option><option selected>Normal</option><option>High</option><option>Urgent</option></select></label>
+            <label class="field"><span class="lbl">Fee<span class="opt">Optional</span></span>
+              <div style="display:flex;gap:8px"><input class="tabular" value="280.00" /><select style="width:150px"><option>per video</option><option>per hour</option><option>per day</option></select></div>
+              <span class="hint">Fills automatically from the presenter's rate card.</span></label>
+          </div>
+          <p class="tabular" style="margin-top:4px">Total commitment: <strong>£840.00</strong>
+            <span class="small muted" style="margin-left:8px">Fixed onto the assignment when you send it, so changing their rate later will not rewrite it.</span></p>
+        </div>
+      </div>
+    </div>
+
+    <aside class="card" style="position:sticky;top:76px">
+      <div class="card-head"><div><h3>Who should do this?</h3><p>Ranked by who is owed work, not by who is best.</p></div></div>
+      <div class="card-body" style="padding:10px;display:grid;gap:8px">
+        ${SUGGESTIONS.map((s,i) => { const p = presenter(s.id); return `
+          <button class="job" style="margin:0;${i===0?'border-color:hsl(var(--primary));background:hsl(var(--primary)/.05)':''}">
+            <div style="display:flex;align-items:center;gap:8px">
+              ${avatar(p.name)}
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:500" class="truncate">${p.name}</div>
+                <div class="small muted tabular">${money(p.rate)} ${p.unit}</div>
+              </div>
+              <span class="badge badge-primary tabular" tabindex="0"
+                data-tip="${s.why.map(w => `${w[0]}: ${w[1]}/${w[2]} — ${w[3]}`).join(' · ')}">${s.score}</span>
+            </div>
+          </button>`; }).join('')}
+
+        <details style="border:1px solid hsl(var(--border));border-radius:10px;padding:12px">
+          <summary style="cursor:pointer;font-weight:500;font-size:13px">2 not shown</summary>
+          <ul style="margin-top:8px;padding-left:0;list-style:none" class="small muted">
+            <li style="margin-bottom:4px"><strong style="color:hsl(var(--foreground))">Priya Raghavan</strong> — No signed contract for this brand</li>
+            <li><strong style="color:hsl(var(--foreground))">Elena Marchetti</strong> — No signed contract for this brand</li>
+          </ul>
+        </details>
+
+        <p class="small muted" style="padding:2px 4px">Deterministic score out of 100: under-allocation 40, time since last assigned 20, average feedback rating 20, on-time delivery 20. Presenters with no history score the neutral midpoint. This is a ranking aid, not a decision.</p>
+      </div>
+    </aside>
+  </div>
+
+  <div style="position:sticky;bottom:0;background:hsl(var(--background)/.95);backdrop-filter:blur(8px);
+    border-top:1px solid hsl(var(--border));margin:24px -24px -24px;padding:12px 24px;display:flex;justify-content:flex-end;gap:8px">
+    <button class="btn btn-ghost" onclick="go('work')">Cancel</button>
+    <button class="btn btn-outline">Save as draft</button>
+    <button class="btn btn-primary" onclick="go('work')">Create and send</button>
+  </div>`;
+}
+
+/* ===========================================================================
+   PRESENTERS
+   =========================================================================== */
+function viewPresenters(){
+  const cards = state.presenterView === 'cards';
+  return `
+  <div class="page-head">
+    <div><h1>Presenters</h1><p>${PRESENTERS.length} profiles</p></div>
+    <div style="display:flex;gap:8px">
+      <div style="display:flex;border:1px solid hsl(var(--border));border-radius:6px;padding:2px">
+        <button class="btn btn-sm ${cards?'btn-outline':'btn-ghost'}" onclick="state.presenterView='cards';render()">Cards</button>
+        <button class="btn btn-sm ${!cards?'btn-outline':'btn-ghost'}" onclick="state.presenterView='table';render()">Table</button>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="go('presenter-new')">Add presenter</button>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    <input placeholder="Search by name, email or location" style="max-width:280px" />
+    <select style="width:auto"><option>All brands</option>${BRANDS.map(b=>`<option>${b.name}</option>`).join('')}</select>
+    <select style="width:auto"><option>Name A–Z</option><option>Longest since last assigned</option><option>Most work completed</option><option>Highest rated</option></select>
+  </div>
+
+  ${cards ? `<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
+    ${PRESENTERS.map(p => `
+      <button class="card" style="padding:16px;text-align:left;cursor:pointer;font:inherit;color:inherit" onclick="go('presenter','${p.id}')">
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          ${avatar(p.name,'lg')}
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;justify-content:space-between;gap:8px">
+              <strong class="truncate">${p.name}</strong>
+              <span class="badge ${p.paused?'badge-warning':'badge-success'}">${p.paused?'paused':'active'}</span>
+            </div>
+            <div class="small muted truncate">${p.name.toLowerCase().replace(' ','.')}@example.com</div>
+            <div class="tabular" style="margin-top:6px">${money(p.rate)} <span class="small muted">${p.unit}</span></div>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:12px">${p.brands.map(b => chip(brand(b))).join('')}</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;margin-top:14px;padding-top:12px;border-top:1px solid hsl(var(--border))">
+          <div><div class="small muted" style="text-transform:uppercase;letter-spacing:.04em">Active</div><div class="tabular" style="font-weight:500">${p.active}</div></div>
+          <div><div class="small muted" style="text-transform:uppercase;letter-spacing:.04em">Done</div><div class="tabular" style="font-weight:500">${p.done}</div></div>
+          <div><div class="small muted" style="text-transform:uppercase;letter-spacing:.04em">Rating</div><div class="tabular" style="font-weight:500">★ ${p.rating}</div></div>
+        </div>
+        <div class="small muted" style="margin-top:10px">Last assigned ${p.last}</div>
+      </button>`).join('')}
+    </div>`
+  : `<div class="card" style="overflow:hidden">
+      <table>
+        <thead><tr><th>Presenter</th><th>Brands</th><th class="num">Rate</th><th class="num">Active</th>
+        <th class="num">Completed</th><th class="num">Turnaround</th><th class="num">On time</th><th class="num">Rating</th><th class="num">Last assigned</th></tr></thead>
+        <tbody>${PRESENTERS.map(p => `
+          <tr style="cursor:pointer" onclick="go('presenter','${p.id}')">
+            <td><span style="display:flex;align-items:center;gap:8px;font-weight:500">${avatar(p.name,'xs')}${p.name}</span></td>
+            <td>${p.brands.map(b=>chip(brand(b))).join(' ')}</td>
+            <td class="num tabular">${money(p.rate)}</td>
+            <td class="num tabular">${p.active}</td>
+            <td class="num tabular">${p.done}</td>
+            <td class="num tabular">${p.turnaround}</td>
+            <td class="num tabular">${p.onTime}%</td>
+            <td class="num tabular">${p.rating}</td>
+            <td class="num muted">${p.last}</td>
+          </tr>`).join('')}</tbody>
+      </table>
+    </div>`}`;
+}
+
+function viewPresenter(){
+  const p = presenter(param) || PRESENTERS[0];
+  const theirJobs = JOBS.filter(j => j.p === p.id);
+  const live = theirJobs.filter(j => !['COMPLETED','APPROVED','DRAFT'].includes(state.jobStatus[j.ref]||j.status));
+  const past = theirJobs.filter(j => ['COMPLETED','APPROVED'].includes(state.jobStatus[j.ref]||j.status));
+  const tabs = [['work','Work'],['contracts','Contracts & rates'],['feedback','Feedback'],['performance','Video performance'],['availability','Availability']];
+
+  return `
+  <div class="page-head">
+    <div><div class="crumb"><a href="#" onclick="go('presenters');return false">Presenters</a></div><h1>${p.name}</h1></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-outline btn-sm">Edit profile</button>
+      <button class="btn btn-primary btn-sm" onclick="go('assignment-new')">Assign work</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:20px;margin-bottom:20px">
+    <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">
+      ${avatar(p.name,'xl')}
+      <div style="flex:1;min-width:220px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <h2 style="font-size:17px;font-weight:600">${p.name}</h2>
+          <span class="badge ${p.paused?'badge-warning':'badge-success'}">${p.paused?'paused':'active'}</span>
+          <span class="badge ${p.id==='p1'?'badge-success':'badge-warning'}">${p.id==='p1'?'Portal access':'Not invited to portal'}</span>
+        </div>
+        <p style="margin-top:6px">${p.bio}</p>
+        <div class="small muted" style="display:flex;gap:18px;flex-wrap:wrap;margin-top:10px">
+          <span>✉ ${p.name.toLowerCase().replace(' ','.')}@example.com</span><span>📍 ${p.loc}</span><span>Joined 18 Jan 2026</span>
+        </div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:10px">${p.tags.map(t=>`<span class="badge">${t}</span>`).join('')}</div>
+      </div>
+      <div class="grid" style="grid-template-columns:repeat(4,110px)">
+        ${stat('Completed', p.done, '', 'Assignments that reached approved or completed.')}
+        ${stat('Turnaround', p.turnaround, '', 'Mean time from the job being sent to the delivery link arriving.')}
+        ${stat('On time', p.onTime+'%', '', 'Share of submitted work with a due date that arrived on or before it.', p.onTime>=85?'good':'warn')}
+        ${stat('Rating', '★ '+p.rating, '', 'Mean overall rating across every internal review, on a 1–5 scale.')}
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs">${tabs.map(([id,l]) => `<button class="${state.tab===id?'active':''}" onclick="state.tab='${id}';render()">${l}</button>`).join('')}</div>
+
+  ${state.tab==='work' ? `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head"><div><h3>Currently with them (${live.length})</h3><p>Last assigned ${p.last}</p></div></div>
+      <div class="card-body flush" style="border-top:1px solid hsl(var(--border))">
+        ${live.length ? live.map(j => jobRow(j)).join('') : '<p class="muted" style="padding:16px 20px">Nothing open. They are free to take work.</p>'}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div><h3>History (${past.length})</h3></div></div>
+      <div class="card-body flush" style="border-top:1px solid hsl(var(--border))">
+        ${past.length ? past.map(j => jobRow(j)).join('')
+          : '<div style="padding:20px"><div class="empty"><h4>No completed work yet</h4><p>Once they have delivered something it will be listed here with the turnaround, the feedback and how the video performed.</p></div></div>'}
+      </div>
+    </div>`
+  : state.tab==='contracts' ? `
+    <div class="card">
+      <div class="card-head"><div><h3>Websites under contract</h3><p>A rate set here overrides their default of ${money(p.rate)} ${p.unit}.</p></div>
+      <button class="btn btn-outline btn-sm">Add contract</button></div>
+      <div class="card-body flush">
+        <table><thead><tr><th>Brand</th><th>Status</th><th class="num">Rate</th><th class="num">Expires</th></tr></thead>
+        <tbody>${p.brands.map((b,i) => `<tr><td>${chip(brand(b))}</td><td><span class="badge badge-success">signed</span></td>
+          <td class="num tabular">${money(i===0?p.rate:Math.round(p.rate*1.1))} <span class="small muted">${p.unit}</span>
+            ${i===0?'<span class="badge" style="margin-left:6px" data-tip="No brand-specific rate is set, so their default applies." tabindex="0">default</span>':''}</td>
+          <td class="num muted">4 Dec 2026</td></tr>`).join('')}</tbody></table>
+      </div>
+    </div>`
+  : state.tab==='feedback' ? `
+    <div class="card">
+      <div class="card-head"><div><h3>Internal feedback</h3><p>Reviews marked “shared” are visible to the presenter in their portal.</p></div></div>
+      <div class="card-body flush" style="border-top:1px solid hsl(var(--border))">
+        ${[[5,'Clean read, good energy, minimal retakes needed.',true],[4,'Solid. Slight pacing drop in the middle third.',true],
+           [3,'Usable, but we lost energy in the second half and needed two pickups.',false]].map(([r,c,shared]) => `
+          <div style="padding:16px 20px;border-bottom:1px solid hsl(var(--border))">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+              <div><div style="font-weight:500">${'★'.repeat(r)}<span class="muted">${'★'.repeat(5-r)}</span> <span class="tabular">${r}/5</span></div>
+              <div class="small muted">Jo Producer · 14 Jul 2026 · ASP-0012</div></div>
+              <span class="badge ${shared?'badge-success':''}">${shared?'Shared with presenter':'Internal only'}</span>
+            </div>
+            <p style="margin-top:8px">${c}</p>
+          </div>`).join('')}
+      </div>
+    </div>`
+  : state.tab==='performance' ? `
+    <div class="card">
+      <div class="card-head"><div><h3>How their videos performed</h3><p>Marketing figures across their delivered work. Uses the most recent measurement of each video so nothing is double-counted.</p></div></div>
+      <div class="card-body flush">
+        <table><thead><tr><th>Platform</th><th class="num">Videos</th><th class="num">Views</th><th class="num">Engagement</th><th class="num">CTR</th><th class="num">Conversions</th></tr></thead>
+        <tbody>
+          <tr><td>YouTube</td><td class="num tabular">8</td><td class="num tabular">142,380</td><td class="num tabular">4.8%</td><td class="num tabular">2.1%</td><td class="num tabular">318</td></tr>
+          <tr><td>LinkedIn</td><td class="num tabular">4</td><td class="num tabular">21,940</td><td class="num tabular">7.3%</td><td class="num tabular">3.4%</td><td class="num tabular">96</td></tr>
+          <tr><td>Paid ads</td><td class="num tabular">3</td><td class="num tabular">88,610</td><td class="num tabular">1.9%</td><td class="num tabular">1.2%</td><td class="num tabular">204</td></tr>
+        </tbody></table>
+      </div>
+    </div>`
+  : `
+    <div class="card">
+      <div class="card-head"><div><h3>Unavailable dates</h3><p>Presenters marked unavailable on a due date are excluded from the suggestion list for that job, with the reason shown.</p></div>
+      <button class="btn btn-outline btn-sm">Add dates</button></div>
+      <div class="card-body">
+        <div style="display:flex;justify-content:space-between;border:1px solid hsl(var(--border));border-radius:8px;padding:10px 12px">
+          <span>24 Aug 2026 – 7 Sep 2026</span><span class="muted">Annual leave</span></div>
+      </div>
+    </div>`}`;
+}
+
+function jobRow(j){
+  const st = state.jobStatus[j.ref] || j.status;
+  return `<a class="row" href="#" onclick="go('assignment','${j.ref}');return false">
+    <span class="small muted tabular" style="width:72px;flex-shrink:0">${j.ref}</span>
+    <span style="flex:1;font-weight:500" class="truncate">${esc(j.title)}</span>
+    ${chip(brand(j.brand))}
+    <span class="${STATUS_CLASS[st]}">${STATUS_LABEL[st]}</span>
+    <span class="small muted tabular" style="width:64px;text-align:right">${j.turnaround||'—'}</span>
+    <span style="width:88px;text-align:right">${dueLabel(j.due, st)}</span>
+    <span class="tabular" style="width:78px;text-align:right">${money(j.fee)}</span>
+  </a>`;
+}
+
+/* ===========================================================================
+   NEW PRESENTER
+   =========================================================================== */
+function viewPresenterNew(){
+  return `
+  <div class="page-head" style="max-width:760px">
+    <div><div class="crumb">Presenters / New</div><h1>Add a presenter</h1>
+    <p>Only a name and an email are needed to save. Everything else can follow.</p></div>
+  </div>
+
+  <div style="max-width:760px;display:grid;gap:16px">
+    <div class="card">
+      <div class="card-head"><div><h3>Who they are</h3></div></div>
+      <div class="card-body">
+        <div style="display:flex;gap:16px;align-items:center;margin-bottom:18px">
+          <div class="avatar xl">+</div>
+          <div><button class="btn btn-outline btn-sm">Upload a photo</button>
+          <p class="small muted" style="margin-top:6px">JPG, PNG or WebP. A square headshot works best.</p></div>
+        </div>
+        <div class="grid" style="grid-template-columns:1fr 1fr">
+          <label class="field"><span class="lbl">Full name<span class="req"> *</span></span><input placeholder="Amara Okafor" /></label>
+          <label class="field"><span class="lbl">Known as<span class="opt">Optional</span></span><input placeholder="Amara" />
+            <span class="hint">Leave blank to use their full name.</span></label>
+          <label class="field"><span class="lbl">Email<span class="req"> *</span></span><input type="email" placeholder="amara@example.com" />
+            <span class="hint">Used to invite them to the portal.</span></label>
+          <label class="field"><span class="lbl">Phone<span class="opt">Optional</span></span><input placeholder="+44 7700 900000" /></label>
+          <label class="field"><span class="lbl">Based in<span class="opt">Optional</span></span><input placeholder="London" /></label>
+          <label class="field"><span class="lbl">Skills and attributes<span class="opt">Optional</span></span>
+            ${combobox('tagCombo','on-camera, finance, owns studio…','tag')}
+            <span class="hint">Type to add. New ones are created as you go.</span></label>
+        </div>
+        <label class="field" style="margin-bottom:0"><span class="lbl">Short bio<span class="opt">Optional</span></span>
+          <textarea rows="3" placeholder="Business and finance presenter. Ten years in broadcast, comfortable with autocue."></textarea></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div><h3>Default rate</h3><p>The fallback. A brand-specific rate below overrides it.</p></div></div>
+      <div class="card-body">
+        <div class="grid" style="grid-template-columns:1fr 1fr 1fr;align-items:end">
+          <label class="field" style="margin:0"><span class="lbl">Amount<span class="opt">Optional</span></span><input class="tabular" placeholder="250.00" /></label>
+          <label class="field" style="margin:0"><span class="lbl">Per<span class="opt">Optional</span></span>
+            <select><option>per video</option><option>per finished minute</option><option>per hour</option><option>per half day</option><option>per day</option><option>per project (flat)</option></select></label>
+          <p class="small muted" style="padding-bottom:9px">Stored in pence, never as a decimal — so no rounding ever creeps in.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div><h3>Websites they have contracts to</h3>
+        <p>Type the brand name. If it does not exist yet, you will be offered <strong>Create “…”</strong> — no need to set it up first.</p></div>
+        <button class="btn btn-outline btn-sm">Add another</button>
+      </div>
+      <div class="card-body">
+        <fieldset style="border:1px solid hsl(var(--border));border-radius:10px;padding:16px">
+          <legend class="small muted" style="padding:0 6px">Contract 1</legend>
+          <label class="field"><span class="lbl">Brand or website<span class="opt">Optional</span></span>
+            ${combobox('contractCombo','Aspirex, South London College, Selector…','brand')}</label>
+          <div class="grid" style="grid-template-columns:1fr 1fr">
+            <label class="field"><span class="lbl">Contract status<span class="opt">Optional</span></span>
+              <select><option>Sent, awaiting signature</option><option>Signed</option><option>Draft</option><option>Expired</option></select></label>
+            <label class="field"><span class="lbl">Expires on<span class="opt">Optional</span></span><input type="date" />
+              <span class="hint">You will be warned 30 days before.</span></label>
+            <label class="field" style="margin:0"><span class="lbl">Rate for this brand<span class="opt">Optional</span></span><input class="tabular" placeholder="250.00" />
+              <span class="hint">Leave blank to use their default rate.</span></label>
+            <label class="field" style="margin:0"><span class="lbl">Per<span class="opt">Optional</span></span>
+              <select><option>Same as default</option><option>per video</option><option>per hour</option><option>per day</option></select></label>
+          </div>
+        </fieldset>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div><h3>How much work they want</h3>
+      <p>Used by the workload screen to tell you whether they are getting a fair share.</p></div></div>
+      <div class="card-body">
+        <div class="grid" style="grid-template-columns:1fr 1fr">
+          <label class="field"><span class="lbl">Target videos per month<span class="opt">Optional</span></span><input class="tabular" type="number" placeholder="8" />
+            <span class="hint">What they have told you they can take on.</span></label>
+          <label class="field"><span class="lbl">Share of work<span class="opt">Optional</span></span>
+            <div style="display:flex;gap:12px;align-items:center;height:36px">
+              <input type="range" min="0.25" max="2" step="0.25" value="1" style="height:auto;box-shadow:none;border:none;padding:0" oninput="document.getElementById('wv').textContent=parseFloat(this.value).toFixed(2)+'×'" />
+              <span class="badge badge-primary tabular" id="wv" data-tip="A presenter on 0.5 who receives half as much work as a colleague on 1.0 counts as perfectly balanced, not under-used." tabindex="0">1.00×</span>
+            </div>
+            <span class="hint">1.0 is a normal full share. Use 0.5 for someone part time.</span></label>
+        </div>
+        <label class="field" style="margin-bottom:0"><span class="lbl">Internal notes<span class="opt">Optional</span></span>
+          <textarea rows="2" placeholder="Prefers morning shoots. Invoices via their limited company."></textarea>
+          <span class="hint">Never visible to the presenter.</span></label>
+      </div>
+    </div>
+  </div>
+
+  <div style="position:sticky;bottom:0;background:hsl(var(--background)/.95);backdrop-filter:blur(8px);
+    border-top:1px solid hsl(var(--border));margin:24px -24px -24px;padding:12px 24px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+    <span class="small muted">Saved as <strong>Onboarding</strong> until you mark them active</span>
+    <span style="display:flex;gap:8px"><button class="btn btn-ghost" onclick="go('presenters')">Cancel</button>
+    <button class="btn btn-primary" onclick="go('presenters')">Save presenter</button></span>
+  </div>`;
+}
+
+/* ===========================================================================
+   WORKLOAD BALANCE
+   =========================================================================== */
+function viewWorkload(){
+  // Deliverables assigned in the last 30 days, per the demo data.
+  const rows = [
+    {id:'p1', delivered:13, weight:1,   earned:224000},
+    {id:'p4', delivered:6,  weight:1,   earned:140000},
+    {id:'p2', delivered:3,  weight:1,   earned:66000},
+    {id:'p3', delivered:2,  weight:0.5, earned:18000},
+    {id:'p5', delivered:1,  weight:1,   earned:26000},
+    {id:'p6', delivered:0,  weight:1,   earned:0},
+  ];
+  const totalW = rows.reduce((s,r) => s + r.weight, 0);
+  const totalD = rows.reduce((s,r) => s + r.delivered, 0);
+
+  const computed = rows.map(r => {
+    const expected = r.weight / totalW;
+    const actual = totalD ? r.delivered / totalD : 0;
+    const bi = totalD ? actual / expected : null;
+    const status = bi === null ? 'NO_DATA' : bi < 0.8 ? 'UNDER' : bi > 1.25 ? 'OVER' : 'BALANCED';
+    // Solving (delivered + x)/(total + x) = expected for x
+    const toParity = Math.max(0, Math.ceil((expected*totalD - r.delivered)/(1-expected)));
+    return {...r, expected, actual, bi, status, toParity};
+  }).sort((a,b) => (a.bi??0) - (b.bi??0));
+
+  // Gini of weight-adjusted output.
+  const vals = rows.map(r => r.delivered / r.weight).sort((a,b) => a-b);
+  const n = vals.length, sum = vals.reduce((s,v)=>s+v,0);
+  let ws = 0; vals.forEach((v,i) => ws += (i+1)*v);
+  const gini = sum ? Math.max(0, (2*ws)/(n*sum) - (n+1)/n) : null;
+
+  const tone = {UNDER:'hsl(var(--warning))', OVER:'hsl(var(--info))', BALANCED:'hsl(var(--success))', NO_DATA:'hsl(var(--muted-fg)/.4)'};
+  const label = {UNDER:['badge-warning','Under-allocated'], OVER:['badge-info','Over-allocated'],
+                 BALANCED:['badge-success','Balanced'], NO_DATA:['badge','No work this period']};
+
+  return `
+  <div class="page-head">
+    <div><h1>Workload balance</h1><p>Who is getting a fair share of the work, and who is being missed.</p></div>
+  </div>
+
+  <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
+    <div style="display:flex;border:1px solid hsl(var(--border));border-radius:6px;padding:2px">
+      ${[30,90,182,365].map(d => `<button class="btn btn-sm ${state.wlDays===d?'btn-outline':'btn-ghost'}" onclick="state.wlDays=${d};render()">${d===30?'Last 30 days':d===90?'Last 90 days':d===182?'Last 6 months':'Last 12 months'}</button>`).join('')}
+    </div>
+    <select style="width:auto"><option>All brands</option>${BRANDS.map(b=>`<option>${b.name}</option>`).join('')}</select>
+  </div>
+
+  <div class="grid stats">
+    ${stat('Deliverables', totalD, `across ${JOBS.length} assignments`,
+      'Total videos handed out in this period, counting assignments that were not cancelled or declined. Counted from the date the work was ASSIGNED, because that is the moment we control.')}
+    ${stat('Under-allocated', computed.filter(r=>r.status==='UNDER').length, 'below 0.80 balance index',
+      'Presenters who received less than 80% of the share their capacity weight implies. Threshold configurable in Settings.','warn')}
+    ${stat('Over-allocated', computed.filter(r=>r.status==='OVER').length, 'above 1.25 balance index',
+      'Presenters who received more than 125% of their implied share. Often the first sign of a burnout risk or a single point of failure.','warn')}
+    ${stat('Evenness', gini.toFixed(2), 'Gini coefficient',
+      'Gini coefficient of weight-adjusted output. 0.00 means every presenter received exactly the share their capacity implies; 1.00 means one person received everything. Below 4 presenters this number is noisy and is labelled indicative only.', gini<0.2?'good':gini<0.4?'warn':'bad')}
+  </div>
+
+  <div class="card" style="margin-top:24px">
+    <div class="card-head">
+      <div><h3>By presenter</h3><p>Sorted by who is furthest below their fair share.</p></div>
+      <span class="small muted" tabindex="0" data-tip="Balance index = (their share of deliverables) ÷ (their share of total capacity weight). 1.00 is exactly fair. Hover any row for the numbers behind it." style="cursor:help">ⓘ How this is calculated</span>
+    </div>
+    <div class="card-body flush" style="border-top:1px solid hsl(var(--border))">
+      ${computed.map(r => { const p = presenter(r.id); const [cls,txt] = label[r.status];
+        return `
+        <div style="padding:16px 20px;border-bottom:1px solid hsl(var(--border))">
+          <div style="display:flex;gap:12px;align-items:center">
+            ${avatar(p.name)}
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <a href="#" onclick="go('presenter','${p.id}');return false" style="font-weight:500;color:inherit">${p.name}</a>
+                ${r.weight!==1?`<span class="badge tabular" data-tip="Capacity weight — their share is scaled by this before comparison." tabindex="0">${r.weight.toFixed(2)}×</span>`:''}
+                <span class="badge ${cls}">${txt}</span>
+              </div>
+              <div class="bar">
+                <span style="width:${Math.min(100,(r.bi??0)/2*100)}%;background:${tone[r.status]}"></span>
+                <span class="mark"></span>
+              </div>
+              <p class="small muted" style="margin-top:6px">
+                ${r.delivered} of ${totalD} deliverables (${Math.round(r.actual*100)}% received vs ${Math.round(r.expected*100)}% expected)
+                ${r.status==='UNDER'&&r.toParity?` · <strong style="color:hsl(var(--warning))">${r.toParity} more would reach parity</strong>`:''}
+              </p>
+            </div>
+            <div style="display:flex;gap:24px;text-align:right">
+              <div><div class="small muted" style="text-transform:uppercase;letter-spacing:.04em">Balance</div>
+                <div class="tabular" style="font-weight:600;cursor:help" tabindex="0"
+                  data-tip="${(r.actual*100).toFixed(1)}% received ÷ ${(r.expected*100).toFixed(1)}% expected = ${r.bi?.toFixed(2)}">${r.bi?.toFixed(2)??'—'}</div></div>
+              <div style="width:60px"><div class="small muted" style="text-transform:uppercase;letter-spacing:.04em">Active</div>
+                <div class="tabular" style="font-weight:600">${p.active}</div></div>
+              <div style="width:74px"><div class="small muted" style="text-transform:uppercase;letter-spacing:.04em">Earned</div>
+                <div class="tabular" style="font-weight:600">${money(r.earned,true)}</div></div>
+              <div style="width:96px"><div class="small muted" style="text-transform:uppercase;letter-spacing:.04em">Last assigned</div>
+                <div>${p.last}</div></div>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="go('assignment-new')">Assign</button>
+          </div>
+          <p class="small muted" style="margin-top:8px;padding-left:52px">
+            Against their own target of ${p.target}/month:
+            <strong style="color:${r.delivered/p.target>=0.9?'hsl(var(--success))':'hsl(var(--warning))'}">${Math.round(r.delivered/p.target*100)}%</strong></p>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>
+
+  <p class="small muted" style="margin-top:14px">Counted from the date work was assigned, not completed — the question this screen answers is what we handed out, which is the part we control. Cancelled and declined assignments are excluded.</p>`;
+}
+
+/* ===========================================================================
+   PRESENTER PORTAL
+   =========================================================================== */
+function viewPortal(){
+  return `
+  <div style="max-width:820px;margin:0 auto">
+    <div class="page-head"><div><h1>Hello, Amara</h1><p>Your work with us, in one place.</p></div></div>
+
+    <div class="grid stats" style="margin-bottom:20px">
+      ${stat('New offers', 1, '', 'Jobs waiting for you to accept or decline.', 'warn')}
+      ${stat('In progress', 2, '', 'Jobs you have accepted.')}
+      ${stat('Completed', 12, '', 'Jobs signed off.')}
+      ${stat('Earned', '£3.4K', '', 'Total agreed fees on completed work. This is what has been signed off, not what has been paid — check with accounts for payment dates.')}
+    </div>
+
+    <div class="card" style="margin-bottom:20px;border-color:hsl(var(--warning)/.4)">
+      <div class="card-head"><div><h3>Waiting on you</h3></div></div>
+      <div class="card-body">
+        <div style="border:1px solid hsl(var(--border));border-radius:10px;padding:16px">
+          <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div><strong>Careers advice short</strong>
+              <div class="small muted" style="margin-top:2px">ASP-0015 · 1 video · due 12 Aug 2026</div></div>
+            <span class="badge badge-primary tabular">£220.00</span>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:14px">
+            <button class="btn btn-success btn-sm">Accept</button>
+            <button class="btn btn-outline btn-sm">Decline</button>
+            <button class="btn btn-ghost btn-sm">See the brief</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-head"><div><h3>Your current work</h3></div></div>
+      <div class="card-body flush" style="border-top:1px solid hsl(var(--border))">
+        ${JOBS.filter(j => j.p==='p1' && ['IN_PROGRESS','IN_REVIEW'].includes(j.status)).map(j => `
+          <div class="row">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:500" class="truncate">${esc(j.title)}</div>
+              <div class="small muted">${j.ref} · ${j.count} video${j.count>1?'s':''}</div>
+            </div>
+            ${chip(brand(j.brand))}
+            <span class="${STATUS_CLASS[j.status]}">${STATUS_LABEL[j.status]}</span>
+            ${dueLabel(j.due, j.status)}
+            <span class="tabular" style="width:78px;text-align:right;font-weight:500">${money(j.fee)}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div><h3>Completed</h3></div></div>
+      <div class="card-body flush" style="border-top:1px solid hsl(var(--border))">
+        ${JOBS.filter(j => j.p==='p1' && j.status==='COMPLETED').map(j => `
+          <div class="row"><span style="flex:1" class="truncate">${esc(j.title)}</span>
+          <span class="small muted">${Math.abs(parseInt(j.due,10))} days ago</span>
+          <span class="tabular" style="width:78px;text-align:right;font-weight:500">${money(j.fee)}</span></div>`).join('')}
+      </div>
+    </div>
+
+    <p class="small muted" style="margin-top:16px;text-align:center">
+      This is what a presenter sees. Internal notes, other presenters' rates, and unshared feedback are absent —
+      and the API refuses to send them, rather than this page hiding them.</p>
+  </div>`;
+}
+
+/* ===========================================================================
+   COMBOBOX — the "just type the website" control
+   =========================================================================== */
+const COMBO_OPTIONS = {
+  brand: BRANDS.map(b => ({name:b.name, color:b.color})),
+  'work type': ['Talking head','Voiceover','Course module','Social short','Product demo','Webinar'].map(n => ({name:n})),
+  tag: ['on-camera','voice only','owns studio','finance','technology','education','RP accent','autocue','BSL'].map(n => ({name:n})),
+};
+const comboState = {};
+
+function combobox(id, placeholder, kind){
+  const s = comboState[id] || (comboState[id] = {open:false, query:'', value:null, kind});
+  const opts = COMBO_OPTIONS[kind] || [];
+  const q = s.query.trim().toLowerCase();
+  const filtered = q ? opts.filter(o => o.name.toLowerCase().includes(q)) : opts;
+  const exact = opts.some(o => o.name.toLowerCase() === q);
+  const showCreate = q.length > 0 && !exact;
+
+  return `<div class="combo" id="${id}">
+    <button type="button" class="combo-trigger" onclick="toggleCombo('${id}')" aria-expanded="${s.open}">
+      ${s.value
+        ? `<span style="display:flex;align-items:center;gap:8px;min-width:0">
+             ${s.value.color?`<span style="width:9px;height:9px;border-radius:999px;background:${s.value.color}"></span>`:''}
+             <span class="truncate">${esc(s.value.name)}</span>
+             ${s.value.isNew?'<span class="badge badge-primary">new</span>':''}</span>`
+        : `<span class="muted">${placeholder}</span>`}
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" class="muted"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg>
+    </button>
+    ${s.open ? `<div class="combo-pop">
+      <input id="${id}-input" value="${esc(s.query)}" placeholder="${placeholder}" autocomplete="off"
+        oninput="comboState['${id}'].query=this.value;renderCombo('${id}')" />
+      <div class="combo-list">
+        ${filtered.map(o => `<div class="combo-item" onmousedown="pickCombo('${id}','${esc(o.name)}',${o.color?`'${o.color}'`:'null'},false)">
+          ${o.color?`<span style="width:9px;height:9px;border-radius:999px;background:${o.color}"></span>`:''}
+          <span style="flex:1">${esc(o.name)}</span></div>`).join('')}
+        ${showCreate ? `
+          ${filtered.length?'<div style="border-top:1px solid hsl(var(--border));margin:4px 0"></div>':''}
+          <div class="combo-item" onmousedown="pickCombo('${id}','${esc(s.query.trim())}',null,true)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="hsl(var(--primary))" stroke-width="2" width="15" height="15"><path d="M12 5v14M5 12h14"/></svg>
+            <span>Create ${kind} <strong>“${esc(s.query.trim())}”</strong></span></div>
+          ${filtered.length?`<p class="combo-note">${filtered.length} existing ${kind}${filtered.length>1?'s':''} match — check the list before adding a new one.</p>`:''}
+        ` : ''}
+        ${!filtered.length && !showCreate ? `<p class="combo-note" style="padding:18px;text-align:center">No ${kind}s yet — start typing to add the first one.</p>` : ''}
+      </div>
+    </div>` : ''}
+  </div>`;
+}
+
+function toggleCombo(id){
+  const s = comboState[id];
+  Object.keys(comboState).forEach(k => { if (k !== id) comboState[k].open = false; });
+  s.open = !s.open; s.query = '';
+  render();
+  if (s.open) setTimeout(() => document.getElementById(id+'-input')?.focus(), 0);
+}
+function renderCombo(id){
+  const el = document.getElementById(id);
+  const s = comboState[id];
+  const placeholder = el.querySelector('.combo-trigger .muted')?.textContent || '';
+  el.outerHTML = combobox(id, placeholder, s.kind);
+  setTimeout(() => {
+    const input = document.getElementById(id+'-input');
+    if (input){ input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  }, 0);
+}
+function pickCombo(id, name, color, isNew){
+  const s = comboState[id];
+  s.value = {name, color, isNew}; s.open = false; s.query = '';
+  render();
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.combo')){
+    let changed = false;
+    Object.values(comboState).forEach(s => { if (s.open){ s.open = false; changed = true; } });
+    if (changed) render();
+  }
+});
+
+/* ===========================================================================
+   COMMAND PALETTE + THEME
+   =========================================================================== */
+function openPalette(){
+  document.getElementById('overlay').classList.add('open');
+  document.getElementById('palette').classList.add('open');
+  const input = document.getElementById('paletteInput');
+  input.value = ''; renderPalette(''); setTimeout(() => input.focus(), 0);
+}
+function closePalette(){
+  document.getElementById('overlay').classList.remove('open');
+  document.getElementById('palette').classList.remove('open');
+}
+function renderPalette(q){
+  const query = q.trim().toLowerCase();
+  const people = query ? PRESENTERS.filter(p => p.name.toLowerCase().includes(query)) : [];
+  const jobs = query ? JOBS.filter(j => (j.title+j.ref).toLowerCase().includes(query)) : [];
+  document.getElementById('paletteList').innerHTML = `
+    ${people.length||jobs.length ? `<div class="palette-group">Results</div>
+      ${people.map(p => `<div class="palette-item" onclick="closePalette();go('presenter','${p.id}')">
+        ${avatar(p.name,'xs')}<span style="flex:1">${p.name}</span><span class="badge">${p.brands.map(b=>brand(b).name).join(', ')}</span></div>`).join('')}
+      ${jobs.map(j => `<div class="palette-item" onclick="closePalette();go('assignment','${j.ref}')">
+        <span style="flex:1">${j.ref} — ${esc(j.title)}</span><span class="badge">${j.p?presenter(j.p).name:'Unassigned'}</span></div>`).join('')}`
+    : ''}
+    <div class="palette-group">Go to</div>
+    ${NAV.map(n => `<div class="palette-item" onclick="closePalette();go('${n.id}')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="${n.icon}"/></svg>${n.label}</div>`).join('')}
+    <div class="palette-group">Create</div>
+    <div class="palette-item" onclick="closePalette();go('assignment-new')">＋ New assignment</div>
+    <div class="palette-item" onclick="closePalette();go('presenter-new')">＋ New presenter profile</div>`;
+}
+document.getElementById('paletteInput').addEventListener('input', e => renderPalette(e.target.value));
+
+document.addEventListener('keydown', e => {
+  const typing = ['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName);
+  if (e.key === 'k' && (e.metaKey || e.ctrlKey)){ e.preventDefault(); openPalette(); }
+  if (e.key === '/' && !typing){ e.preventDefault(); openPalette(); }
+  if (e.key === 'Escape') closePalette();
+});
+
+function toggleTheme(){
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'dark' ? 'light' : 'dark';
+}
+
+render();
+</script>
+</body>
+</html>

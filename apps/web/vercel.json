@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "cd ../.. && npm run build:shared && npm run build --workspace @presenter-ops/web",
+  "installCommand": "cd ../.. && npm install",
+  "outputDirectory": ".next",
+  "regions": ["lhr1"]
+}
