@@ -12,8 +12,8 @@ import {
   type AssignmentSummaryDto,
 } from '@presenter-ops/shared';
 
-import { api } from '@/lib/api';
-import { useAssignments, usePresenter } from '@/lib/queries';
+import { api, ApiRequestError } from '@/lib/api';
+import { useAssignments, useMe, usePresenter } from '@/lib/queries';
 import { formatDate, relativeTime } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -43,12 +43,16 @@ import { DueBadge, PresenterStatusPill, StatusPill } from '@/components/status';
 export default function PresenterDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [tab, setTab] = React.useState('work');
+  const [inviting, setInviting] = React.useState(false);
+  const [inviteSent, setInviteSent] = React.useState(false);
+  const [inviteError, setInviteError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const requestedTab = new URLSearchParams(window.location.search).get('tab');
     if (requestedTab) setTab(requestedTab);
   }, []);
 
+  const { data: me } = useMe();
   const { data: presenter, isLoading } = usePresenter(id);
   const { data: assignments } = useAssignments({ presenterId: [id], pageSize: 100, sort: 'assignedAt', direction: 'desc' });
   const { data: feedback } = useQuery({
@@ -59,6 +63,32 @@ export default function PresenterDetailPage() {
     queryKey: ['presenter-performance', id],
     queryFn: () => api.get<any[]>(`/presenters/${id}/performance`),
   });
+
+  const inviteToPortal = async () => {
+    if (!presenter || inviting) return;
+
+    setInviting(true);
+    setInviteError(null);
+
+    try {
+      await api.post('/auth/invite', {
+        email: presenter.email,
+        name: presenter.fullName,
+        role: 'PRESENTER',
+        presenterId: presenter.id,
+      });
+
+      setInviteSent(true);
+    } catch (caught) {
+      setInviteError(
+        caught instanceof ApiRequestError
+          ? caught.message
+          : 'Could not create the presenter invitation.',
+      );
+    } finally {
+      setInviting(false);
+    }
+  };
 
   if (isLoading || !presenter) {
     return (
@@ -87,6 +117,16 @@ export default function PresenterDetailPage() {
         title={presenter.displayName}
         actions={
           <>
+            {!presenter.hasPortalAccess && (me?.role === 'ADMIN' || me?.role === 'PRODUCER') ? (
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => void inviteToPortal()}
+                disabled={inviting || inviteSent}
+              >
+                {inviting ? 'Sending invite…' : inviteSent ? 'Invitation created' : 'Invite to portal'}
+              </Button>
+            ) : null}
             <Button variant="outline" asChild>
               <Link href={`/presenters/${id}/edit`}>Edit profile</Link>
             </Button>
@@ -96,6 +136,21 @@ export default function PresenterDetailPage() {
           </>
         }
       />
+
+      {inviteSent ? (
+        <div className="mb-4 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm">
+          <p className="font-medium">Presenter invitation created.</p>
+          <p className="mt-1 text-muted-foreground">
+            If production email is enabled, the presenter will receive the invitation link by email.
+          </p>
+        </div>
+      ) : null}
+
+      {inviteError ? (
+        <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {inviteError}
+        </div>
+      ) : null}
 
       {/* --- identity card ------------------------------------------------- */}
       <Card className="mb-5 p-5">
