@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Command } from 'cmdk';
 import * as Dialog from '@radix-ui/react-dialog';
+import * as Popover from '@radix-ui/react-popover';
 import { useTheme } from 'next-themes';
 import {
   Bell,
@@ -219,36 +220,234 @@ function ThemeToggle() {
   );
 }
 
-function NotificationBell() {
-  const [unread, setUnread] = React.useState(0);
+type NotificationItem = {
+  id: string;
+  type: string;
+  title: string;
+  body: string | null;
+  linkUrl: string | null;
+  readAt: string | null;
+  createdAt: string;
+};
 
-  React.useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const items = await api.get<unknown[]>('/notifications', { unreadOnly: 'true' });
-        if (!cancelled) setUnread(items.length);
-      } catch {
-        // A failed notification poll must never interrupt what the user is doing.
-      }
-    };
-    void load();
-    const timer = setInterval(load, 60_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
+function NotificationBell() {
+  const router = useRouter();
+  const [open, setOpen] = React.useState(false);
+  const [unread, setUnread] = React.useState(0);
+  const [items, setItems] = React.useState<NotificationItem[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [loadFailed, setLoadFailed] = React.useState(false);
+
+  const loadUnread = React.useCallback(async () => {
+    try {
+      const unreadItems = await api.get<NotificationItem[]>('/notifications', {
+        unreadOnly: 'true',
+      });
+      setUnread(unreadItems.length);
+    } catch {
+      // A failed notification poll must never interrupt what the user is doing.
+    }
   }, []);
 
+  const loadAll = React.useCallback(async () => {
+    setLoading(true);
+    setLoadFailed(false);
+
+    try {
+      const allItems = await api.get<NotificationItem[]>('/notifications');
+      setItems(allItems);
+      setUnread(allItems.filter((item) => !item.readAt).length);
+    } catch {
+      setLoadFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void loadUnread();
+
+    const timer = setInterval(() => {
+      void loadUnread();
+    }, 60_000);
+
+    return () => clearInterval(timer);
+  }, [loadUnread]);
+
+  React.useEffect(() => {
+    if (open) {
+      void loadAll();
+    }
+  }, [open, loadAll]);
+
+  const markRead = async (ids?: string[]) => {
+    await api.post('/notifications/read', ids ? { ids } : {});
+
+    const now = new Date().toISOString();
+
+    setItems((current) =>
+      current.map((item) =>
+        !ids || ids.includes(item.id)
+          ? { ...item, readAt: item.readAt ?? now }
+          : item,
+      ),
+    );
+
+    if (!ids) {
+      setUnread(0);
+      return;
+    }
+
+    setUnread((current) => {
+      const newlyRead = items.filter(
+        (item) => ids.includes(item.id) && !item.readAt,
+      ).length;
+      return Math.max(0, current - newlyRead);
+    });
+  };
+
+  const openNotification = async (item: NotificationItem) => {
+    try {
+      if (!item.readAt) {
+        await markRead([item.id]);
+      }
+    } catch {
+      // Navigation should still work even if marking as read fails.
+    }
+
+    setOpen(false);
+
+    if (item.linkUrl) {
+      router.push(item.linkUrl);
+    }
+  };
+
   return (
-    <Button variant="ghost" size="icon" className="relative" aria-label={`Notifications, ${unread} unread`}>
-      <Bell />
-      {unread > 0 ? (
-        <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground">
-          {unread > 9 ? '9+' : unread}
-        </span>
-      ) : null}
-    </Button>
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative"
+          aria-label={`Notifications, ${unread} unread`}
+        >
+          <Bell />
+          {unread > 0 ? (
+            <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground">
+              {unread > 9 ? '9+' : unread}
+            </span>
+          ) : null}
+        </Button>
+      </Popover.Trigger>
+
+      <Popover.Portal>
+        <Popover.Content
+          align="end"
+          sideOffset={8}
+          className="z-50 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl border bg-popover shadow-lg"
+        >
+          <div className="flex items-center justify-between border-b px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold">Notifications</p>
+              <p className="text-xs text-muted-foreground">
+                {unread === 0 ? 'You are all caught up.' : `${unread} unread`}
+              </p>
+            </div>
+
+            {unread > 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void markRead()}
+              >
+                Mark all read
+              </Button>
+            ) : null}
+          </div>
+
+          <div className="max-h-96 overflow-y-auto">
+            {loading ? (
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                Loading notifications...
+              </p>
+            ) : loadFailed ? (
+              <div className="px-4 py-6 text-center">
+                <p className="text-sm font-medium">Could not load notifications</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => void loadAll()}
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : items.length === 0 ? (
+              <div className="px-4 py-8 text-center">
+                <Bell
+                  className="mx-auto mb-2 size-5 text-muted-foreground"
+                  aria-hidden
+                />
+                <p className="text-sm font-medium">No notifications yet</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Assignment updates and reminders will appear here.
+                </p>
+              </div>
+            ) : (
+              <ul className="divide-y">
+                {items.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => void openNotification(item)}
+                      className={cn(
+                        'w-full px-4 py-3 text-left transition-colors hover:bg-accent',
+                        !item.readAt && 'bg-primary/5',
+                      )}
+                    >
+                      <span className="flex items-start gap-3">
+                        <span
+                          className={cn(
+                            'mt-1.5 size-2 shrink-0 rounded-full',
+                            item.readAt
+                              ? 'bg-muted-foreground/25'
+                              : 'bg-primary',
+                          )}
+                          aria-hidden
+                        />
+
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-medium">
+                            {item.title}
+                          </span>
+
+                          {item.body ? (
+                            <span className="mt-0.5 block text-xs text-muted-foreground">
+                              {item.body}
+                            </span>
+                          ) : null}
+
+                          <span className="mt-1.5 block text-[11px] text-muted-foreground">
+                            {new Date(item.createdAt).toLocaleString('en-GB', {
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
