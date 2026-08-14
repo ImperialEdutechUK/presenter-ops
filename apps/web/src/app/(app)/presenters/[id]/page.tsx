@@ -21,10 +21,12 @@ import {
 import { api, ApiRequestError } from '@/lib/api';
 import {
   useAssignments,
-  useMe,
   usePresenter,
 } from '@/lib/queries';
-import { formatDate, relativeTime } from '@/lib/utils';
+import {
+  formatDate,
+  relativeTime,
+} from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import {
   Avatar,
@@ -48,113 +50,191 @@ import {
 } from '@/components/status';
 
 /**
- * The presenter profile. Everything about one person in one place, split into
- * tabs so the page opens on what you came for rather than a wall.
- *
- * The default tab is WORK, not "about" — the reason to open a presenter is
- * almost always to see what they have been given, not to re-read their bio.
+ * Presenter profile.
  */
 export default function PresenterDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } =
+    useParams<{ id: string }>();
 
-  const [tab, setTab] = React.useState('work');
+  const [tab, setTab] =
+    React.useState('work');
 
   const [inviting, setInviting] =
     React.useState(false);
 
-  const [inviteStatus, setInviteStatus] =
-    React.useState<'sent' | 'not-sent' | null>(
+  const [
+    inviteStatus,
+    setInviteStatus,
+  ] = React.useState<
+    'sent' | 'not-sent' | null
+  >(null);
+
+  const [
+    inviteExpiresAt,
+    setInviteExpiresAt,
+  ] =
+    React.useState<string | null>(
       null,
     );
 
-  const [inviteExpiresAt, setInviteExpiresAt] =
-    React.useState<string | null>(null);
-
-  const [inviteError, setInviteError] =
-    React.useState<string | null>(null);
+  const [
+    inviteError,
+    setInviteError,
+  ] =
+    React.useState<string | null>(
+      null,
+    );
 
   React.useEffect(() => {
-    const requestedTab = new URLSearchParams(
-      window.location.search,
-    ).get('tab');
+    const requestedTab =
+      new URLSearchParams(
+        window.location.search,
+      ).get('tab');
 
     if (requestedTab) {
       setTab(requestedTab);
     }
   }, []);
 
-  const { data: me } = useMe();
+  /**
+   * IMPORTANT:
+   * Fetch the current user fresh on this
+   * page instead of relying on the normal
+   * five-minute useMe() cache.
+   */
+  const {
+    data: currentUser,
+    isLoading: checkingAccess,
+  } = useQuery({
+    queryKey: [
+      'presenter-portal-access-check',
+      id,
+    ],
+
+    queryFn: () =>
+      api.get<{
+        id: string;
+        email: string;
+        name: string;
+        role: string;
+      }>('/auth/me'),
+
+    staleTime: 0,
+    refetchOnMount: 'always',
+    retry: false,
+  });
 
   const {
     data: presenter,
     isLoading,
   } = usePresenter(id);
 
-  const { data: assignments } = useAssignments({
+  const {
+    data: assignments,
+  } = useAssignments({
     presenterId: [id],
     pageSize: 100,
     sort: 'assignedAt',
     direction: 'desc',
   });
 
-  const { data: feedback } = useQuery({
-    queryKey: ['presenter-feedback', id],
+  const {
+    data: feedback,
+  } = useQuery({
+    queryKey: [
+      'presenter-feedback',
+      id,
+    ],
+
     queryFn: () =>
       api.get<any[]>(
         `/presenters/${id}/feedback`,
       ),
   });
 
-  const { data: performance } = useQuery({
-    queryKey: ['presenter-performance', id],
+  const {
+    data: performance,
+  } = useQuery({
+    queryKey: [
+      'presenter-performance',
+      id,
+    ],
+
     queryFn: () =>
       api.get<any[]>(
         `/presenters/${id}/performance`,
       ),
   });
 
-  const inviteToPortal = async () => {
-    if (!presenter || inviting) {
-      return;
-    }
-
-    setInviting(true);
-    setInviteError(null);
-
-    try {
-      const result = await api.post<{
-        id: string;
-        email: string;
-        expiresAt: string;
-        emailSent: boolean;
-      }>('/auth/invite', {
-        email: presenter.email,
-        name: presenter.fullName,
-        role: 'PRESENTER',
-        presenterId: presenter.id,
-      });
-
-      setInviteExpiresAt(result.expiresAt);
-
-      if (result.emailSent) {
-        setInviteStatus('sent');
-      } else {
-        setInviteStatus('not-sent');
+  const inviteToPortal =
+    async () => {
+      if (
+        !presenter ||
+        inviting
+      ) {
+        return;
       }
-    } catch (caught) {
-      setInviteStatus(null);
 
-      setInviteError(
-        caught instanceof ApiRequestError
-          ? caught.message
-          : 'Could not create the presenter invitation.',
-      );
-    } finally {
-      setInviting(false);
-    }
-  };
+      setInviting(true);
+      setInviteError(null);
 
-  if (isLoading || !presenter) {
+      try {
+        const result =
+          await api.post<{
+            id: string;
+            email: string;
+            expiresAt: string;
+            emailSent: boolean;
+          }>(
+            '/auth/invite',
+            {
+              email:
+                presenter.email,
+
+              name:
+                presenter.fullName,
+
+              role:
+                'PRESENTER',
+
+              presenterId:
+                presenter.id,
+            },
+          );
+
+        setInviteExpiresAt(
+          result.expiresAt,
+        );
+
+        if (
+          result.emailSent
+        ) {
+          setInviteStatus(
+            'sent',
+          );
+        } else {
+          setInviteStatus(
+            'not-sent',
+          );
+        }
+      } catch (caught) {
+        setInviteStatus(null);
+
+        setInviteError(
+          caught instanceof
+            ApiRequestError
+            ? caught.message
+            : 'Could not create the presenter invitation.',
+        );
+      } finally {
+        setInviting(false);
+      }
+    };
+
+  if (
+    isLoading ||
+    !presenter
+  ) {
     return (
       <div className="mx-auto max-w-[1200px] space-y-4">
         <Skeleton className="h-32" />
@@ -163,22 +243,35 @@ export default function PresenterDetailPage() {
     );
   }
 
-  const live = (assignments?.data ?? []).filter(
-    (assignment) =>
-      [
-        'ASSIGNED',
-        'ACCEPTED',
-        'IN_PROGRESS',
-        'SUBMITTED',
-        'IN_REVIEW',
-        'REVISIONS_REQUESTED',
-      ].includes(assignment.status),
+  const canInviteToPortal =
+    !presenter.hasPortalAccess &&
+    (currentUser?.role ===
+      'ADMIN' ||
+      currentUser?.role ===
+        'PRODUCER');
+
+  const live = (
+    assignments?.data ?? []
+  ).filter((assignment) =>
+    [
+      'ASSIGNED',
+      'ACCEPTED',
+      'IN_PROGRESS',
+      'SUBMITTED',
+      'IN_REVIEW',
+      'REVISIONS_REQUESTED',
+    ].includes(
+      assignment.status,
+    ),
   );
 
   const past = (
     assignments?.data ?? []
   ).filter(
-    (assignment) => !live.includes(assignment),
+    (assignment) =>
+      !live.includes(
+        assignment,
+      ),
   );
 
   return (
@@ -192,12 +285,12 @@ export default function PresenterDetailPage() {
             Presenters
           </Link>
         }
-        title={presenter.displayName}
+        title={
+          presenter.displayName
+        }
         actions={
           <>
-            {!presenter.hasPortalAccess &&
-            (me?.role === 'ADMIN' ||
-              me?.role === 'PRODUCER') ? (
+            {canInviteToPortal ? (
               <Button
                 variant="outline"
                 type="button"
@@ -206,17 +299,30 @@ export default function PresenterDetailPage() {
                 }
                 disabled={
                   inviting ||
-                  inviteStatus === 'sent'
+                  inviteStatus ===
+                    'sent'
                 }
               >
                 {inviting
                   ? 'Sending invite…'
-                  : inviteStatus === 'sent'
+                  : inviteStatus ===
+                      'sent'
                     ? 'Invitation sent'
                     : inviteStatus ===
                         'not-sent'
                       ? 'Retry invitation'
                       : 'Invite to portal'}
+              </Button>
+            ) : null}
+
+            {checkingAccess &&
+            !presenter.hasPortalAccess ? (
+              <Button
+                variant="outline"
+                type="button"
+                disabled
+              >
+                Checking access…
               </Button>
             ) : null}
 
@@ -242,15 +348,19 @@ export default function PresenterDetailPage() {
         }
       />
 
-      {inviteStatus === 'sent' ? (
+      {inviteStatus ===
+      'sent' ? (
         <div className="mb-4 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm">
           <p className="font-medium">
-            Invitation email sent.
+            Invitation email
+            sent.
           </p>
 
           <p className="mt-1 text-muted-foreground">
-            An account activation link was sent
-            to {presenter.email}.
+            An account
+            activation link was
+            sent to{' '}
+            {presenter.email}.
             {inviteExpiresAt
               ? ` The invitation expires ${new Date(
                   inviteExpiresAt,
@@ -262,19 +372,24 @@ export default function PresenterDetailPage() {
         </div>
       ) : null}
 
-      {inviteStatus === 'not-sent' ? (
+      {inviteStatus ===
+      'not-sent' ? (
         <div className="mb-4 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
           <p className="font-medium">
-            Invitation created, but the email
-            was not sent.
+            Invitation created,
+            but the email was
+            not sent.
           </p>
 
           <p className="mt-1 text-muted-foreground">
-            Email delivery is either disabled
-            or the SMTP provider could not send
-            the message. Configure email
-            delivery and then select “Retry
-            invitation”.
+            Email delivery is
+            either disabled or
+            the email provider
+            could not send the
+            message. Check the
+            email configuration
+            and then select
+            “Retry invitation”.
           </p>
         </div>
       ) : null}
@@ -285,24 +400,32 @@ export default function PresenterDetailPage() {
         </div>
       ) : null}
 
-      {/* --- identity card ------------------------------------------------- */}
+      {/* Identity card */}
 
       <Card className="mb-5 p-5">
         <div className="flex flex-wrap items-start gap-5">
           <Avatar
-            name={presenter.displayName}
-            src={presenter.photoUrl}
+            name={
+              presenter.displayName
+            }
+            src={
+              presenter.photoUrl
+            }
             size="xl"
           />
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-semibold">
-                {presenter.fullName}
+                {
+                  presenter.fullName
+                }
               </h2>
 
               <PresenterStatusPill
-                status={presenter.status}
+                status={
+                  presenter.status
+                }
               />
 
               {presenter.hasPortalAccess ? (
@@ -311,11 +434,13 @@ export default function PresenterDetailPage() {
                 </Badge>
               ) : inviteStatus ? (
                 <Badge tone="warning">
-                  Invitation pending
+                  Invitation
+                  pending
                 </Badge>
               ) : (
                 <Badge tone="warning">
-                  Not invited to portal
+                  Not invited to
+                  portal
                 </Badge>
               )}
             </div>
@@ -337,7 +462,9 @@ export default function PresenterDetailPage() {
                   href={`mailto:${presenter.email}`}
                   className="hover:underline"
                 >
-                  {presenter.email}
+                  {
+                    presenter.email
+                  }
                 </a>
               </li>
 
@@ -347,7 +474,10 @@ export default function PresenterDetailPage() {
                     className="size-3.5"
                     aria-hidden
                   />
-                  {presenter.phone}
+
+                  {
+                    presenter.phone
+                  }
                 </li>
               ) : null}
 
@@ -357,7 +487,10 @@ export default function PresenterDetailPage() {
                     className="size-3.5"
                     aria-hidden
                   />
-                  {presenter.location}
+
+                  {
+                    presenter.location
+                  }
                 </li>
               ) : null}
 
@@ -375,11 +508,21 @@ export default function PresenterDetailPage() {
             </ul>
 
             <ul className="mt-3 flex flex-wrap gap-1.5">
-              {presenter.tags.map((tag) => (
-                <li key={tag.id}>
-                  <Badge>{tag.name}</Badge>
-                </li>
-              ))}
+              {presenter.tags.map(
+                (tag) => (
+                  <li
+                    key={
+                      tag.id
+                    }
+                  >
+                    <Badge>
+                      {
+                        tag.name
+                      }
+                    </Badge>
+                  </li>
+                ),
+              )}
             </ul>
           </div>
 
@@ -440,23 +583,29 @@ export default function PresenterDetailPage() {
         </div>
       </Card>
 
-      {/* --- tabs ---------------------------------------------------------- */}
-
       <Tabs.Root
         value={tab}
-        onValueChange={setTab}
+        onValueChange={
+          setTab
+        }
       >
         <Tabs.List
           className="mb-4 flex gap-1 border-b"
           aria-label="Presenter sections"
         >
           {[
-            ['work', 'Work'],
+            [
+              'work',
+              'Work',
+            ],
             [
               'contracts',
               'Contracts & rates',
             ],
-            ['feedback', 'Feedback'],
+            [
+              'feedback',
+              'Feedback',
+            ],
             [
               'performance',
               'Video performance',
@@ -465,18 +614,29 @@ export default function PresenterDetailPage() {
               'availability',
               'Availability',
             ],
-          ].map(([value, label]) => (
-            <Tabs.Trigger
-              key={value}
-              value={value}
-              className="-mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:text-foreground"
-            >
-              {label}
-            </Tabs.Trigger>
-          ))}
+          ].map(
+            ([
+              value,
+              label,
+            ]) => (
+              <Tabs.Trigger
+                key={
+                  value
+                }
+                value={
+                  value
+                }
+                className="-mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:text-foreground"
+              >
+                {
+                  label
+                }
+              </Tabs.Trigger>
+            ),
+          )}
         </Tabs.List>
 
-        {/* --- work -------------------------------------------------------- */}
+        {/* Work */}
 
         <Tabs.Content
           value="work"
@@ -485,8 +645,12 @@ export default function PresenterDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle>
-                Currently with them (
-                {live.length})
+                Currently with
+                them (
+                {
+                  live.length
+                }
+                )
               </CardTitle>
 
               <p className="text-sm text-muted-foreground">
@@ -500,7 +664,8 @@ export default function PresenterDetailPage() {
             </CardHeader>
 
             <CardContent className="p-0">
-              {live.length === 0 ? (
+              {live.length ===
+              0 ? (
                 <p className="px-5 pb-5 text-sm text-muted-foreground">
                   Nothing open.{' '}
                   {presenter.status ===
@@ -510,7 +675,9 @@ export default function PresenterDetailPage() {
                 </p>
               ) : (
                 <AssignmentList
-                  assignments={live}
+                  assignments={
+                    live
+                  }
                 />
               )}
             </CardContent>
@@ -519,12 +686,17 @@ export default function PresenterDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle>
-                History ({past.length})
+                History (
+                {
+                  past.length
+                }
+                )
               </CardTitle>
             </CardHeader>
 
             <CardContent className="p-0">
-              {past.length === 0 ? (
+              {past.length ===
+              0 ? (
                 <div className="p-5">
                   <EmptyState
                     title="No completed work yet"
@@ -533,14 +705,16 @@ export default function PresenterDetailPage() {
                 </div>
               ) : (
                 <AssignmentList
-                  assignments={past}
+                  assignments={
+                    past
+                  }
                 />
               )}
             </CardContent>
           </Card>
         </Tabs.Content>
 
-        {/* --- contracts --------------------------------------------------- */}
+        {/* Contracts */}
 
         <Tabs.Content
           value="contracts"
@@ -550,12 +724,14 @@ export default function PresenterDetailPage() {
             <CardHeader>
               <div>
                 <CardTitle>
-                  Websites under contract
+                  Websites under
+                  contract
                 </CardTitle>
 
                 <p className="mt-0.5 text-sm text-muted-foreground">
-                  A rate set here overrides
-                  their default of{' '}
+                  A rate set here
+                  overrides their
+                  default of{' '}
                   {formatMoney(
                     presenter.defaultRateMinor,
                     presenter.defaultCurrency,
@@ -605,17 +781,25 @@ export default function PresenterDetailPage() {
 
                 <tbody className="divide-y">
                   {presenter.contracts.map(
-                    (contract) => (
-                      <tr key={contract.id}>
+                    (
+                      contract,
+                    ) => (
+                      <tr
+                        key={
+                          contract.id
+                        }
+                      >
                         <td className="px-5 py-3">
                           <BrandChip
                             name={
                               contract
-                                .brand.name
+                                .brand
+                                .name
                             }
                             colorHex={
                               contract
-                                .brand.colorHex
+                                .brand
+                                .colorHex
                             }
                           />
                         </td>
@@ -676,7 +860,7 @@ export default function PresenterDetailPage() {
           </Card>
         </Tabs.Content>
 
-        {/* --- feedback ---------------------------------------------------- */}
+        {/* Feedback */}
 
         <Tabs.Content
           value="feedback"
@@ -689,104 +873,125 @@ export default function PresenterDetailPage() {
               </CardTitle>
 
               <p className="text-sm text-muted-foreground">
-                Reviews marked “shared” are
-                visible to the presenter in
+                Reviews marked
+                “shared” are
+                visible to the
+                presenter in
                 their portal.
               </p>
             </CardHeader>
 
             <CardContent className="p-0">
               {!feedback ||
-              feedback.length === 0 ? (
+              feedback.length ===
+                0 ? (
                 <p className="px-5 pb-5 text-sm text-muted-foreground">
-                  No feedback recorded yet.
+                  No feedback
+                  recorded yet.
                 </p>
               ) : (
                 <ul className="divide-y border-t">
-                  {feedback.map((item) => (
-                    <li
-                      key={item.id}
-                      className="px-5 py-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="flex items-center gap-1 text-sm font-medium">
-                            {Array.from({
-                              length: 5,
-                            }).map(
-                              (_, index) => (
-                                <Star
-                                  key={
-                                    index
-                                  }
-                                  className={
-                                    index <
-                                    item.overallRating
-                                      ? 'size-3.5 fill-warning text-warning'
-                                      : 'size-3.5 text-muted-foreground/30'
-                                  }
-                                  aria-hidden
-                                />
-                              ),
-                            )}
+                  {feedback.map(
+                    (
+                      item,
+                    ) => (
+                      <li
+                        key={
+                          item.id
+                        }
+                        className="px-5 py-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="flex items-center gap-1 text-sm font-medium">
+                              {Array.from(
+                                {
+                                  length:
+                                    5,
+                                },
+                              ).map(
+                                (
+                                  _,
+                                  index,
+                                ) => (
+                                  <Star
+                                    key={
+                                      index
+                                    }
+                                    className={
+                                      index <
+                                      item.overallRating
+                                        ? 'size-3.5 fill-warning text-warning'
+                                        : 'size-3.5 text-muted-foreground/30'
+                                    }
+                                    aria-hidden
+                                  />
+                                ),
+                              )}
 
-                            <span className="tabular ml-1">
-                              {
-                                item.overallRating
-                              }
-                              /5
-                            </span>
-                          </p>
+                              <span className="tabular ml-1">
+                                {
+                                  item.overallRating
+                                }
+                                /5
+                              </span>
+                            </p>
 
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {
-                              item.author
-                                .name
-                            }{' '}
-                            ·{' '}
-                            {formatDate(
-                              item.createdAt,
-                            )}{' '}
-                            ·{' '}
-                            <Link
-                              href={`/assignments/${item.assignment.id}`}
-                              className="hover:underline"
-                            >
+                            <p className="mt-0.5 text-xs text-muted-foreground">
                               {
                                 item
-                                  .assignment
-                                  .reference
-                              }
-                            </Link>
-                          </p>
+                                  .author
+                                  .name
+                              }{' '}
+                              ·{' '}
+                              {formatDate(
+                                item.createdAt,
+                              )}{' '}
+                              ·{' '}
+                              <Link
+                                href={`/assignments/${item.assignment.id}`}
+                                className="hover:underline"
+                              >
+                                {
+                                  item
+                                    .assignment
+                                    .reference
+                                }
+                              </Link>
+                            </p>
+                          </div>
+
+                          {item.visibleToPresenter ? (
+                            <Badge tone="success">
+                              Shared
+                              with
+                              presenter
+                            </Badge>
+                          ) : (
+                            <Badge>
+                              Internal
+                              only
+                            </Badge>
+                          )}
                         </div>
 
-                        {item.visibleToPresenter ? (
-                          <Badge tone="success">
-                            Shared with
-                            presenter
-                          </Badge>
-                        ) : (
-                          <Badge>
-                            Internal only
-                          </Badge>
-                        )}
-                      </div>
-
-                      {item.comment ? (
-                        <p className="mt-2 text-sm">
-                          {item.comment}
-                        </p>
-                      ) : null}
-                    </li>
-                  ))}
+                        {item.comment ? (
+                          <p className="mt-2 text-sm">
+                            {
+                              item.comment
+                            }
+                          </p>
+                        ) : null}
+                      </li>
+                    ),
+                  )}
                 </ul>
               )}
             </CardContent>
           </Card>
         </Tabs.Content>
 
-        {/* --- performance -------------------------------------------------- */}
+        {/* Performance */}
 
         <Tabs.Content
           value="performance"
@@ -796,15 +1001,22 @@ export default function PresenterDetailPage() {
             <CardHeader>
               <div>
                 <CardTitle>
-                  How their videos performed
+                  How their
+                  videos
+                  performed
                 </CardTitle>
 
                 <p className="mt-0.5 text-sm text-muted-foreground">
-                  Marketing figures,
-                  aggregated across their
-                  delivered work. Uses the most
-                  recent measurement of each
-                  video so nothing is
+                  Marketing
+                  figures,
+                  aggregated
+                  across their
+                  delivered
+                  work. Uses the
+                  most recent
+                  measurement
+                  of each video
+                  so nothing is
                   double-counted.
                 </p>
               </div>
@@ -812,11 +1024,16 @@ export default function PresenterDetailPage() {
 
             <CardContent className="p-0">
               {!performance ||
-              performance.length === 0 ? (
+              performance.length ===
+                0 ? (
                 <p className="px-5 pb-5 text-sm text-muted-foreground">
-                  No performance figures
-                  recorded yet. Marketing can
-                  add them from any completed
+                  No
+                  performance
+                  figures
+                  recorded yet.
+                  Marketing can
+                  add them from
+                  any completed
                   assignment.
                 </p>
               ) : (
@@ -866,7 +1083,9 @@ export default function PresenterDetailPage() {
 
                   <tbody className="divide-y">
                     {performance.map(
-                      (row) => (
+                      (
+                        row,
+                      ) => (
                         <tr
                           key={
                             row.platform
@@ -896,14 +1115,16 @@ export default function PresenterDetailPage() {
                           >
                             {row.views?.toLocaleString(
                               'en-GB',
-                            ) ?? '—'}
+                            ) ??
+                              '—'}
                           </td>
 
                           <td
                             className="tabular px-5 py-3 text-right"
                             data-numeric
                           >
-                            {row.derived
+                            {row
+                              .derived
                               .engagementRatePct ===
                             null
                               ? '—'
@@ -914,7 +1135,8 @@ export default function PresenterDetailPage() {
                             className="tabular px-5 py-3 text-right"
                             data-numeric
                           >
-                            {row.derived
+                            {row
+                              .derived
                               .ctrPct ===
                             null
                               ? '—'
@@ -927,7 +1149,8 @@ export default function PresenterDetailPage() {
                           >
                             {row.conversions?.toLocaleString(
                               'en-GB',
-                            ) ?? '—'}
+                            ) ??
+                              '—'}
                           </td>
                         </tr>
                       ),
@@ -939,7 +1162,7 @@ export default function PresenterDetailPage() {
           </Card>
         </Tabs.Content>
 
-        {/* --- availability ------------------------------------------------ */}
+        {/* Availability */}
 
         <Tabs.Content
           value="availability"
@@ -949,15 +1172,21 @@ export default function PresenterDetailPage() {
             <CardHeader>
               <div>
                 <CardTitle>
-                  Unavailable dates
+                  Unavailable
+                  dates
                 </CardTitle>
 
                 <p className="mt-0.5 text-sm text-muted-foreground">
-                  Presenters marked unavailable
-                  on a due date are excluded
-                  from the suggestion list for
-                  that job, with the reason
-                  shown.
+                  Presenters
+                  marked
+                  unavailable
+                  on a due date
+                  are excluded
+                  from the
+                  suggestion
+                  list for that
+                  job, with the
+                  reason shown.
                 </p>
               </div>
 
@@ -970,17 +1199,24 @@ export default function PresenterDetailPage() {
             </CardHeader>
 
             <CardContent>
-              {presenter.availability
-                .length === 0 ? (
+              {presenter
+                .availability
+                .length ===
+              0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No blocked dates.
+                  No blocked
+                  dates.
                 </p>
               ) : (
                 <ul className="space-y-2">
                   {presenter.availability.map(
-                    (block) => (
+                    (
+                      block,
+                    ) => (
                       <li
-                        key={block.id}
+                        key={
+                          block.id
+                        }
                         className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
                       >
                         <span>
@@ -1017,58 +1253,80 @@ function AssignmentList({
 }) {
   return (
     <ul className="divide-y border-t">
-      {assignments.map((assignment) => (
-        <li key={assignment.id}>
-          <Link
-            href={`/assignments/${assignment.id}`}
-            className="flex flex-wrap items-center gap-3 px-5 py-3 hover:bg-muted/50"
+      {assignments.map(
+        (assignment) => (
+          <li
+            key={
+              assignment.id
+            }
           >
-            <span className="tabular w-20 shrink-0 text-xs text-muted-foreground">
-              {assignment.reference}
-            </span>
+            <Link
+              href={`/assignments/${assignment.id}`}
+              className="flex flex-wrap items-center gap-3 px-5 py-3 hover:bg-muted/50"
+            >
+              <span className="tabular w-20 shrink-0 text-xs text-muted-foreground">
+                {
+                  assignment.reference
+                }
+              </span>
 
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">
-              {assignment.title}
-            </span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                {
+                  assignment.title
+                }
+              </span>
 
-            {assignment.brand ? (
-              <BrandChip
-                name={assignment.brand.name}
-                colorHex={
-                  assignment.brand.colorHex
+              {assignment.brand ? (
+                <BrandChip
+                  name={
+                    assignment
+                      .brand
+                      .name
+                  }
+                  colorHex={
+                    assignment
+                      .brand
+                      .colorHex
+                  }
+                />
+              ) : null}
+
+              <StatusPill
+                status={
+                  assignment.status
                 }
               />
-            ) : null}
 
-            <StatusPill
-              status={assignment.status}
-            />
+              <span className="tabular w-24 text-right text-xs text-muted-foreground">
+                {formatDuration(
+                  assignment.turnaroundMinutes,
+                )}
+              </span>
 
-            <span className="tabular w-24 text-right text-xs text-muted-foreground">
-              {formatDuration(
-                assignment.turnaroundMinutes,
-              )}
-            </span>
+              <span className="w-24 text-right">
+                <DueBadge
+                  dueAt={
+                    assignment.dueAt
+                  }
+                  status={
+                    assignment.status
+                  }
+                  latenessMinutes={
+                    assignment.latenessMinutes
+                  }
+                />
+              </span>
 
-            <span className="w-24 text-right">
-              <DueBadge
-                dueAt={assignment.dueAt}
-                status={assignment.status}
-                latenessMinutes={
-                  assignment.latenessMinutes
-                }
-              />
-            </span>
-
-            <span className="tabular w-20 text-right text-sm">
-              {formatMoney(
-                assignment.totalFeeMinor,
-                assignment.feeCurrency,
-              )}
-            </span>
-          </Link>
-        </li>
-      ))}
+              <span className="tabular w-20 text-right text-sm">
+                {formatMoney(
+                  assignment.totalFeeMinor,
+                  assignment.feeCurrency,
+                )}
+              </span>
+            </Link>
+          </li>
+        ),
+      )}
     </ul>
   );
 }
