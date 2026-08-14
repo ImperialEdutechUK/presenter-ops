@@ -215,13 +215,19 @@ export class NotificationsService {
         'emailjs.publicKey',
       );
 
+    const privateKey =
+      this.config.get<string>(
+        'emailjs.privateKey',
+      );
+
     if (
       !serviceId ||
       !templateId ||
-      !publicKey
+      !publicKey ||
+      !privateKey
     ) {
       this.logger.error(
-        'EmailJS is enabled but EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID or EMAILJS_PUBLIC_KEY is missing.',
+        'EmailJS is enabled but one or more required EmailJS environment variables are missing.',
       );
 
       return false;
@@ -249,6 +255,14 @@ export class NotificationsService {
 
                 user_id:
                   publicKey,
+
+                /**
+                 * Required when EmailJS
+                 * non-browser API access is
+                 * configured in strict mode.
+                 */
+                accessToken:
+                  privateKey,
 
                 template_params:
                   {
