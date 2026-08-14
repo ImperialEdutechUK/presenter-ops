@@ -36,6 +36,10 @@ const configuration = () => ({
     url: required('DATABASE_URL'),
   },
 
+  // ==========================================================================
+  // Authentication
+  // ==========================================================================
+
   auth: {
     jwtSecret:
       required('JWT_SECRET'),
@@ -67,9 +71,13 @@ const configuration = () => ({
     inviteTtlDays:
       Number(
         process.env.INVITE_TTL_DAYS ??
-        14,
+          14,
       ),
   },
+
+  // ==========================================================================
+  // Object storage
+  // ==========================================================================
 
   storage: {
     endpoint:
@@ -102,7 +110,7 @@ const configuration = () => ({
     presignTtlSeconds:
       Number(
         process.env.S3_PRESIGN_TTL ??
-        900,
+          900,
       ),
 
     maxUploadBytes:
@@ -113,11 +121,15 @@ const configuration = () => ({
       ),
   },
 
+  // ==========================================================================
+  // Existing SMTP email
+  // ==========================================================================
+
   /**
-   * Existing SMTP mail configuration.
+   * SMTP is retained for assignment/reminder emails.
    *
-   * Leave MAIL_ENABLED=false while invitation
-   * emails are sent through EmailJS.
+   * MAIL_ENABLED can remain false while presenter
+   * invitation emails are handled by EmailJS.
    */
   mail: {
     enabled:
@@ -125,50 +137,76 @@ const configuration = () => ({
       'true',
 
     host:
-      process.env.SMTP_HOST ?? '',
+      process.env.SMTP_HOST ??
+      '',
 
     port:
       Number(
         process.env.SMTP_PORT ??
-        587,
+          587,
       ),
 
     user:
-      process.env.SMTP_USER ?? '',
+      process.env.SMTP_USER ??
+      '',
 
     pass:
-      process.env.SMTP_PASS ?? '',
+      process.env.SMTP_PASS ??
+      '',
 
     from:
       process.env.MAIL_FROM ??
       'PresenterOps <no-reply@example.com>',
   },
 
+  // ==========================================================================
+  // EmailJS
+  // ==========================================================================
+
   /**
-   * EmailJS is currently used for presenter
-   * account invitation / activation emails.
+   * EmailJS is used for presenter account
+   * invitation / activation emails.
+   *
+   * Private Key is required because EmailJS
+   * server-side API access is running in
+   * strict mode.
    */
   emailjs: {
-    enabled: emailJsEnabled,
+    enabled:
+      emailJsEnabled,
 
-    serviceId: emailJsEnabled
-      ? required(
-          'EMAILJS_SERVICE_ID',
-        )
-      : '',
+    serviceId:
+      emailJsEnabled
+        ? required(
+            'EMAILJS_SERVICE_ID',
+          )
+        : '',
 
-    templateId: emailJsEnabled
-      ? required(
-          'EMAILJS_TEMPLATE_ID',
-        )
-      : '',
+    templateId:
+      emailJsEnabled
+        ? required(
+            'EMAILJS_TEMPLATE_ID',
+          )
+        : '',
 
-    publicKey: emailJsEnabled
-      ? required(
-          'EMAILJS_PUBLIC_KEY',
-        )
-      : '',
+    publicKey:
+      emailJsEnabled
+        ? required(
+            'EMAILJS_PUBLIC_KEY',
+          )
+        : '',
+
+    privateKey:
+      emailJsEnabled
+        ? required(
+            'EMAILJS_PRIVATE_KEY',
+          )
+        : '',
   },
+
+  // ==========================================================================
+  // AI
+  // ==========================================================================
 
   ai: {
     enabled:
@@ -177,7 +215,8 @@ const configuration = () => ({
 
     apiKey:
       process.env
-        .OPENROUTER_API_KEY ?? '',
+        .OPENROUTER_API_KEY ??
+      '',
 
     baseUrl:
       process.env
