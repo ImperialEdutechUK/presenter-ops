@@ -18,7 +18,10 @@ import {
   type AssignmentSummaryDto,
 } from '@presenter-ops/shared';
 
-import { api, ApiRequestError } from '@/lib/api';
+import {
+  api,
+  ApiRequestError,
+} from '@/lib/api';
 import {
   useAssignments,
   usePresenter,
@@ -95,34 +98,6 @@ export default function PresenterDetailPage() {
       setTab(requestedTab);
     }
   }, []);
-
-  /**
-   * IMPORTANT:
-   * Fetch the current user fresh on this
-   * page instead of relying on the normal
-   * five-minute useMe() cache.
-   */
-  const {
-    data: currentUser,
-    isLoading: checkingAccess,
-  } = useQuery({
-    queryKey: [
-      'presenter-portal-access-check',
-      id,
-    ],
-
-    queryFn: () =>
-      api.get<{
-        id: string;
-        email: string;
-        name: string;
-        role: string;
-      }>('/auth/me'),
-
-    staleTime: 0,
-    refetchOnMount: 'always',
-    retry: false,
-  });
 
   const {
     data: presenter,
@@ -243,12 +218,14 @@ export default function PresenterDetailPage() {
     );
   }
 
+  /**
+   * The frontend only decides whether there is
+   * anything to invite.
+   *
+   * Authorisation remains enforced by the API.
+   */
   const canInviteToPortal =
-    !presenter.hasPortalAccess &&
-    (currentUser?.role ===
-      'ADMIN' ||
-      currentUser?.role ===
-        'PRODUCER');
+    !presenter.hasPortalAccess;
 
   const live = (
     assignments?.data ?? []
@@ -315,17 +292,6 @@ export default function PresenterDetailPage() {
               </Button>
             ) : null}
 
-            {checkingAccess &&
-            !presenter.hasPortalAccess ? (
-              <Button
-                variant="outline"
-                type="button"
-                disabled
-              >
-                Checking access…
-              </Button>
-            ) : null}
-
             <Button
               variant="outline"
               asChild
@@ -352,14 +318,12 @@ export default function PresenterDetailPage() {
       'sent' ? (
         <div className="mb-4 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm">
           <p className="font-medium">
-            Invitation email
-            sent.
+            Invitation email sent.
           </p>
 
           <p className="mt-1 text-muted-foreground">
-            An account
-            activation link was
-            sent to{' '}
+            An account activation
+            link was sent to{' '}
             {presenter.email}.
             {inviteExpiresAt
               ? ` The invitation expires ${new Date(
@@ -377,19 +341,18 @@ export default function PresenterDetailPage() {
         <div className="mb-4 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
           <p className="font-medium">
             Invitation created,
-            but the email was
-            not sent.
+            but the email was not
+            sent.
           </p>
 
           <p className="mt-1 text-muted-foreground">
             Email delivery is
-            either disabled or
-            the email provider
-            could not send the
-            message. Check the
-            email configuration
-            and then select
-            “Retry invitation”.
+            either disabled or the
+            email provider could not
+            send the message. Check
+            the email configuration
+            and then select “Retry
+            invitation”.
           </p>
         </div>
       ) : null}
@@ -434,8 +397,7 @@ export default function PresenterDetailPage() {
                 </Badge>
               ) : inviteStatus ? (
                 <Badge tone="warning">
-                  Invitation
-                  pending
+                  Invitation pending
                 </Badge>
               ) : (
                 <Badge tone="warning">
@@ -874,9 +836,8 @@ export default function PresenterDetailPage() {
 
               <p className="text-sm text-muted-foreground">
                 Reviews marked
-                “shared” are
-                visible to the
-                presenter in
+                “shared” are visible
+                to the presenter in
                 their portal.
               </p>
             </CardHeader>
@@ -963,14 +924,12 @@ export default function PresenterDetailPage() {
 
                           {item.visibleToPresenter ? (
                             <Badge tone="success">
-                              Shared
-                              with
+                              Shared with
                               presenter
                             </Badge>
                           ) : (
                             <Badge>
-                              Internal
-                              only
+                              Internal only
                             </Badge>
                           )}
                         </div>
@@ -1011,12 +970,12 @@ export default function PresenterDetailPage() {
                   figures,
                   aggregated
                   across their
-                  delivered
-                  work. Uses the
-                  most recent
-                  measurement
-                  of each video
-                  so nothing is
+                  delivered work.
+                  Uses the most
+                  recent
+                  measurement of
+                  each video so
+                  nothing is
                   double-counted.
                 </p>
               </div>
@@ -1027,13 +986,11 @@ export default function PresenterDetailPage() {
               performance.length ===
                 0 ? (
                 <p className="px-5 pb-5 text-sm text-muted-foreground">
-                  No
-                  performance
-                  figures
-                  recorded yet.
-                  Marketing can
-                  add them from
-                  any completed
+                  No performance
+                  figures recorded
+                  yet. Marketing can
+                  add them from any
+                  completed
                   assignment.
                 </p>
               ) : (
@@ -1179,11 +1136,10 @@ export default function PresenterDetailPage() {
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   Presenters
                   marked
-                  unavailable
-                  on a due date
-                  are excluded
-                  from the
-                  suggestion
+                  unavailable on
+                  a due date are
+                  excluded from
+                  the suggestion
                   list for that
                   job, with the
                   reason shown.
