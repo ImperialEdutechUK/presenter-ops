@@ -1,34 +1,65 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 
 import { AppShell } from '@/components/app-shell';
-import { useMe } from '@/lib/queries';
+import { api } from '@/lib/api';
 
 export default function InternalLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const router = useRouter();
-  const { data: me, isLoading, isError } = useMe();
+  const {
+    data: me,
+    isPending,
+    isError,
+  } = useQuery({
+    queryKey: ['internal-access-check'],
+    queryFn: () =>
+      api.get<{
+        id: string;
+        email: string;
+        name: string;
+        role: string;
+      }>('/auth/me'),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
 
   React.useEffect(() => {
     if (me?.role === 'PRESENTER') {
-      router.replace('/portal');
+      window.location.replace('/portal');
+      return;
     }
-  }, [me?.role, router]);
 
-  if (isLoading) {
+    if (isError) {
+      window.location.replace('/login');
+    }
+  }, [me?.role, isError]);
+
+  if (isPending) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-        Loading PresenterOps…
+        Checking access…
       </div>
     );
   }
 
-  if (isError || !me || me.role === 'PRESENTER') {
+  if (isError) {
+    return null;
+  }
+
+  if (me?.role === 'PRESENTER') {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        Redirecting to your portal…
+      </div>
+    );
+  }
+
+  if (!me) {
     return null;
   }
 
