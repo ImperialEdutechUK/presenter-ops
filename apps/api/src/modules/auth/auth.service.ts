@@ -28,9 +28,14 @@ export class AuthService {
   // Sign in
   // -------------------------------------------------------------------------
 
-  async validateCredentials(email: string, password: string) {
+  async validateCredentials(
+    email: string,
+    password: string,
+  ) {
     const user = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
+      where: {
+        email: email.toLowerCase().trim(),
+      },
     });
 
     const hash =
@@ -52,8 +57,12 @@ export class AuthService {
     }
 
     await this.prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+      where: {
+        id: user.id,
+      },
+      data: {
+        lastLoginAt: new Date(),
+      },
     });
 
     return user;
@@ -66,23 +75,32 @@ export class AuthService {
       userAgent?: string;
     } = {},
   ) {
-    const accessToken = await this.jwt.signAsync(
-      { sub: userId },
-      {
-        expiresIn: this.config.get<string>(
-          'auth.accessTokenTtl',
-        ),
-      },
-    );
+    const accessToken =
+      await this.jwt.signAsync(
+        {
+          sub: userId,
+        },
+        {
+          expiresIn:
+            this.config.get<string>(
+              'auth.accessTokenTtl',
+            ),
+        },
+      );
 
-    const raw = randomBytes(48).toString('base64url');
+    const raw =
+      randomBytes(48).toString('base64url');
 
     const ttlDays =
-      this.config.get<number>('auth.refreshTokenTtlDays')!;
+      this.config.get<number>(
+        'auth.refreshTokenTtlDays',
+      )!;
 
-    const expiresAt = new Date(
-      Date.now() + ttlDays * 86_400_000,
-    );
+    const expiresAt =
+      new Date(
+        Date.now() +
+          ttlDays * 86_400_000,
+      );
 
     await this.prisma.refreshToken.create({
       data: {
@@ -108,14 +126,15 @@ export class AuthService {
       userAgent?: string;
     } = {},
   ) {
-    const record = await this.prisma.refreshToken.findUnique({
-      where: {
-        tokenHash: sha256(raw),
-      },
-      include: {
-        user: true,
-      },
-    });
+    const record =
+      await this.prisma.refreshToken.findUnique({
+        where: {
+          tokenHash: sha256(raw),
+        },
+        include: {
+          user: true,
+        },
+      });
 
     if (
       !record ||
@@ -136,10 +155,15 @@ export class AuthService {
       },
     });
 
-    return this.issueTokens(record.userId, context);
+    return this.issueTokens(
+      record.userId,
+      context,
+    );
   }
 
-  async revokeAllSessions(userId: string) {
+  async revokeAllSessions(
+    userId: string,
+  ) {
     await this.prisma.refreshToken.updateMany({
       where: {
         userId,
@@ -164,11 +188,15 @@ export class AuthService {
     },
     invitedById: string,
   ) {
-    const email = input.email.toLowerCase().trim();
+    const email =
+      input.email.toLowerCase().trim();
 
-    const existing = await this.prisma.user.findUnique({
-      where: { email },
-    });
+    const existing =
+      await this.prisma.user.findUnique({
+        where: {
+          email,
+        },
+      });
 
     if (existing) {
       throw new BadRequestException(
@@ -211,7 +239,9 @@ export class AuthService {
       }
 
       if (
-        presenter.email.toLowerCase().trim() !== email
+        presenter.email
+          .toLowerCase()
+          .trim() !== email
       ) {
         throw new BadRequestException(
           'The invitation email must match the presenter profile email.',
@@ -220,63 +250,88 @@ export class AuthService {
     }
 
     const raw =
-      randomBytes(32).toString('base64url');
+      randomBytes(32).toString(
+        'base64url',
+      );
 
     const ttlDays =
-      this.config.get<number>('auth.inviteTtlDays')!;
+      this.config.get<number>(
+        'auth.inviteTtlDays',
+      )!;
 
-    const expiresAt = new Date(
-      Date.now() + ttlDays * 86_400_000,
-    );
+    const expiresAt =
+      new Date(
+        Date.now() +
+          ttlDays * 86_400_000,
+      );
 
     const invitation =
-      await this.prisma.$transaction(async (tx) => {
-        if (input.presenterId) {
-          await tx.invitation.deleteMany({
-            where: {
-              presenterId: input.presenterId,
+      await this.prisma.$transaction(
+        async (tx) => {
+          /*
+           * Delete any previous invitation for
+           * this presenter before creating a
+           * new one.
+           *
+           * This makes "Retry invitation"
+           * generate a completely new token.
+           */
+          if (input.presenterId) {
+            await tx.invitation.deleteMany({
+              where: {
+                presenterId:
+                  input.presenterId,
+              },
+            });
+          }
+
+          return tx.invitation.create({
+            data: {
+              email,
+              role: input.role,
+              presenterId:
+                input.presenterId ??
+                null,
+              tokenHash: sha256(raw),
+              invitedById,
+              expiresAt,
             },
           });
-        }
+        },
+      );
 
-        return tx.invitation.create({
-          data: {
-            email,
-            role: input.role,
-            presenterId:
-              input.presenterId ?? null,
-            tokenHash: sha256(raw),
-            invitedById,
-            expiresAt,
-          },
-        });
-      });
+    const appUrl =
+      this.config.get<string>('appUrl');
 
     const url =
-      `${this.config.get<string>('appUrl')}` +
+      `${appUrl}` +
       `/accept-invite?token=${raw}`;
 
+    /*
+     * Presenter account invitations use
+     * EmailJS instead of SMTP.
+     */
     const emailSent =
-      await this.notifications.sendEmail({
-        to: email,
-        subject: `You have been invited to ${
-          process.env.ORG_NAME ??
-          'PresenterOps'
-        }`,
-        text:
-          `Hello ${input.name},\n\n` +
-          `You have been given access to the presenter management system.\n\n` +
-          `Set your password here (the link is valid for ${ttlDays} days):\n${url}\n`,
-      });
+      await this.notifications
+        .sendInvitationEmail({
+          to: email,
+          toName: input.name,
+          activationUrl: url,
+          expiryDays: ttlDays,
+        });
 
     return {
       id: invitation.id,
       email,
-      expiresAt: invitation.expiresAt,
+      expiresAt:
+        invitation.expiresAt,
       emailSent,
+
       ...(this.config.get('env') ===
       'development'
-        ? { devToken: raw }
+        ? {
+            devToken: raw,
+          }
         : {}),
     };
   }
@@ -296,58 +351,91 @@ export class AuthService {
     if (
       !invitation ||
       invitation.acceptedAt ||
-      invitation.expiresAt < new Date()
+      invitation.expiresAt <
+        new Date()
     ) {
       throw new BadRequestException(
         'That invitation link is no longer valid. Ask for a new one.',
       );
     }
 
-    const passwordHash = await argon2.hash(
-      password,
-      {
-        type: argon2.argon2id,
-      },
-    );
+    const existingUser =
+      await this.prisma.user.findUnique({
+        where: {
+          email: invitation.email,
+        },
+      });
+
+    if (existingUser) {
+      throw new BadRequestException(
+        'An account already exists for this email address.',
+      );
+    }
+
+    const passwordHash =
+      await argon2.hash(
+        password,
+        {
+          type: argon2.argon2id,
+        },
+      );
 
     const user =
-      await this.prisma.$transaction(async (tx) => {
-        const created = await tx.user.create({
-          data: {
-            email: invitation.email,
-            name:
-              name ??
-              invitation.email.split('@')[0],
-            passwordHash,
-            role: invitation.role,
-          },
-        });
+      await this.prisma.$transaction(
+        async (tx) => {
+          const created =
+            await tx.user.create({
+              data: {
+                email:
+                  invitation.email,
+                name:
+                  name ??
+                  invitation.email.split(
+                    '@',
+                  )[0],
+                passwordHash,
+                role:
+                  invitation.role,
+                isActive: true,
+              },
+            });
 
-        if (invitation.presenterId) {
-          await tx.presenter.update({
+          if (
+            invitation.presenterId
+          ) {
+            await tx.presenter.update({
+              where: {
+                id:
+                  invitation.presenterId,
+              },
+              data: {
+                userId:
+                  created.id,
+              },
+            });
+          }
+
+          await tx.invitation.update({
             where: {
-              id: invitation.presenterId,
+              id:
+                invitation.id,
             },
             data: {
-              userId: created.id,
+              acceptedAt:
+                new Date(),
             },
           });
-        }
 
-        await tx.invitation.update({
-          where: {
-            id: invitation.id,
-          },
-          data: {
-            acceptedAt: new Date(),
-          },
-        });
-
-        return created;
-      });
+          return created;
+        },
+      );
 
     return user;
   }
+
+  // -------------------------------------------------------------------------
+  // Password management
+  // -------------------------------------------------------------------------
 
   async changePassword(
     userId: string,
@@ -361,37 +449,56 @@ export class AuthService {
         },
       });
 
-    if (
-      !user.passwordHash ||
-      !(await argon2.verify(
-        user.passwordHash,
-        currentPassword,
-      ))
-    ) {
+    if (!user.passwordHash) {
       throw new UnauthorizedException(
         'Current password is incorrect.',
       );
     }
+
+    let passwordMatches = false;
+
+    try {
+      passwordMatches =
+        await argon2.verify(
+          user.passwordHash,
+          currentPassword,
+        );
+    } catch {
+      passwordMatches = false;
+    }
+
+    if (!passwordMatches) {
+      throw new UnauthorizedException(
+        'Current password is incorrect.',
+      );
+    }
+
+    const passwordHash =
+      await argon2.hash(
+        newPassword,
+        {
+          type: argon2.argon2id,
+        },
+      );
 
     await this.prisma.user.update({
       where: {
         id: userId,
       },
       data: {
-        passwordHash: await argon2.hash(
-          newPassword,
-          {
-            type: argon2.argon2id,
-          },
-        ),
+        passwordHash,
       },
     });
 
-    await this.revokeAllSessions(userId);
+    await this.revokeAllSessions(
+      userId,
+    );
   }
 }
 
-function sha256(value: string): string {
+function sha256(
+  value: string,
+): string {
   return createHash('sha256')
     .update(value)
     .digest('hex');
