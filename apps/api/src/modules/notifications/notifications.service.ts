@@ -1,7 +1,15 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import nodemailer, { type Transporter } from 'nodemailer';
+import {
+  Cron,
+  CronExpression,
+} from '@nestjs/schedule';
+import nodemailer, {
+  type Transporter,
+} from 'nodemailer';
 import type {
   AssignmentStatus,
   NotificationType,
@@ -13,32 +21,69 @@ import type { AuthenticatedUser } from '../../common/decorators';
 /**
  * In-app notifications plus email.
  *
- * Email is best-effort: a failed SMTP send is logged and the in-app
- * notification still exists, because losing the record of "we told them" is
- * worse than losing the email itself. When MAIL_ENABLED is false (local dev)
- * messages are written to the log instead of being sent.
+ * Presenter account invitation emails use EmailJS.
+ *
+ * The existing SMTP transport is retained for assignment
+ * lifecycle/reminder emails so those parts of PresenterOps
+ * do not need to be changed at the same time.
  */
 @Injectable()
 export class NotificationsService {
-  private readonly logger = new Logger(NotificationsService.name);
-  private transporter: Transporter | null = null;
+  private readonly logger =
+    new Logger(
+      NotificationsService.name,
+    );
+
+  private transporter:
+    | Transporter
+    | null = null;
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
+    private readonly prisma:
+      PrismaService,
+    private readonly config:
+      ConfigService,
   ) {
-    if (this.config.get<boolean>('mail.enabled')) {
-      this.transporter = nodemailer.createTransport({
-        host: this.config.get<string>('mail.host'),
-        port: this.config.get<number>('mail.port'),
-        secure: this.config.get<number>('mail.port') === 465,
-        auth: {
-          user: this.config.get<string>('mail.user'),
-          pass: this.config.get<string>('mail.pass'),
-        },
-      });
+    if (
+      this.config.get<boolean>(
+        'mail.enabled',
+      )
+    ) {
+      this.transporter =
+        nodemailer.createTransport({
+          host:
+            this.config.get<string>(
+              'mail.host',
+            ),
+
+          port:
+            this.config.get<number>(
+              'mail.port',
+            ),
+
+          secure:
+            this.config.get<number>(
+              'mail.port',
+            ) === 465,
+
+          auth: {
+            user:
+              this.config.get<string>(
+                'mail.user',
+              ),
+
+            pass:
+              this.config.get<string>(
+                'mail.pass',
+              ),
+          },
+        });
     }
   }
+
+  // ==========================================================================
+  // In-app notifications
+  // ==========================================================================
 
   async create(input: {
     userId: string;
@@ -46,28 +91,53 @@ export class NotificationsService {
     title: string;
     body?: string;
     linkUrl?: string;
+
     alsoEmail?: {
       to: string;
       subject: string;
       text: string;
     };
   }) {
-    const notification = await this.prisma.notification.create({
-      data: {
-        userId: input.userId,
-        type: input.type,
-        title: input.title,
-        body: input.body ?? null,
-        linkUrl: input.linkUrl ?? null,
-      },
-    });
+    const notification =
+      await this.prisma.notification.create(
+        {
+          data: {
+            userId:
+              input.userId,
+
+            type:
+              input.type,
+
+            title:
+              input.title,
+
+            body:
+              input.body ??
+              null,
+
+            linkUrl:
+              input.linkUrl ??
+              null,
+          },
+        },
+      );
 
     if (input.alsoEmail) {
-      void this.sendEmail(input.alsoEmail);
+      /*
+       * Assignment/reminder emails are still
+       * best-effort SMTP messages.
+       */
+      void this.sendEmail(
+        input.alsoEmail,
+      );
     }
 
     return notification;
   }
+
+  // ==========================================================================
+  // Existing SMTP email
+  // ==========================================================================
 
   async sendEmail(message: {
     to: string;
@@ -85,75 +155,234 @@ export class NotificationsService {
 
     try {
       await this.transporter.sendMail({
-        from: this.config.get<string>('mail.from'),
+        from:
+          this.config.get<string>(
+            'mail.from',
+          ),
+
         ...message,
       });
 
       return true;
     } catch (error) {
       this.logger.error(
-        `Email to ${message.to} failed: ${(error as Error).message}`,
+        `Email to ${message.to} failed: ${
+          (error as Error).message
+        }`,
       );
 
       return false;
     }
   }
 
-  list(userId: string, unreadOnly = false) {
-    return this.prisma.notification.findMany({
-      where: {
-        userId,
-        ...(unreadOnly ? { readAt: null } : {}),
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      take: 50,
-    });
+  // ==========================================================================
+  // EmailJS presenter invitation email
+  // ==========================================================================
+
+  async sendInvitationEmail(
+    input: {
+      to: string;
+      toName: string;
+      activationUrl: string;
+      expiryDays: number;
+    },
+  ): Promise<boolean> {
+    const enabled =
+      this.config.get<boolean>(
+        'emailjs.enabled',
+      );
+
+    if (!enabled) {
+      this.logger.warn(
+        `EmailJS is disabled. Invitation email was not sent to ${input.to}.`,
+      );
+
+      return false;
+    }
+
+    const serviceId =
+      this.config.get<string>(
+        'emailjs.serviceId',
+      );
+
+    const templateId =
+      this.config.get<string>(
+        'emailjs.templateId',
+      );
+
+    const publicKey =
+      this.config.get<string>(
+        'emailjs.publicKey',
+      );
+
+    if (
+      !serviceId ||
+      !templateId ||
+      !publicKey
+    ) {
+      this.logger.error(
+        'EmailJS is enabled but EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID or EMAILJS_PUBLIC_KEY is missing.',
+      );
+
+      return false;
+    }
+
+    try {
+      const response =
+        await fetch(
+          'https://api.emailjs.com/api/v1.0/email/send',
+          {
+            method: 'POST',
+
+            headers: {
+              'Content-Type':
+                'application/json',
+            },
+
+            body:
+              JSON.stringify({
+                service_id:
+                  serviceId,
+
+                template_id:
+                  templateId,
+
+                user_id:
+                  publicKey,
+
+                template_params:
+                  {
+                    to_email:
+                      input.to,
+
+                    to_name:
+                      input.toName,
+
+                    activation_url:
+                      input.activationUrl,
+
+                    expiry_days:
+                      String(
+                        input.expiryDays,
+                      ),
+                  },
+              }),
+          },
+        );
+
+      if (!response.ok) {
+        const errorText =
+          await response.text();
+
+        this.logger.error(
+          `EmailJS invitation failed for ${input.to}. ` +
+            `HTTP ${response.status}: ${errorText}`,
+        );
+
+        return false;
+      }
+
+      this.logger.log(
+        `Presenter invitation email sent through EmailJS to ${input.to}`,
+      );
+
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `EmailJS invitation failed for ${input.to}: ${
+          (error as Error).message
+        }`,
+      );
+
+      return false;
+    }
   }
 
-  markRead(userId: string, ids?: string[]) {
-    return this.prisma.notification.updateMany({
-      where: {
-        userId,
-        readAt: null,
-        ...(ids?.length
-          ? {
-              id: {
-                in: ids,
-              },
-            }
-          : {}),
+  // ==========================================================================
+  // Notification queries
+  // ==========================================================================
+
+  list(
+    userId: string,
+    unreadOnly = false,
+  ) {
+    return this.prisma.notification.findMany(
+      {
+        where: {
+          userId,
+
+          ...(unreadOnly
+            ? {
+                readAt: null,
+              }
+            : {}),
+        },
+
+        orderBy: {
+          createdAt: 'desc',
+        },
+
+        take: 50,
       },
-      data: {
-        readAt: new Date(),
+    );
+  }
+
+  markRead(
+    userId: string,
+    ids?: string[],
+  ) {
+    return this.prisma.notification.updateMany(
+      {
+        where: {
+          userId,
+          readAt: null,
+
+          ...(ids?.length
+            ? {
+                id: {
+                  in: ids,
+                },
+              }
+            : {}),
+        },
+
+        data: {
+          readAt: new Date(),
+        },
       },
-    });
+    );
   }
 
   // ==========================================================================
   // Assignment lifecycle hooks
   // ==========================================================================
 
-  async onAssignmentTransition(params: {
-    assignment: {
-      id: string;
-      reference: string;
-      title: string;
-      dueAt: Date | null;
-    };
-    from: AssignmentStatus;
-    to: AssignmentStatus;
-    actor: AuthenticatedUser;
-    presenter: {
-      id: string;
-      displayName: string;
-      email: string;
-      userId: string | null;
-    } | null;
-    brandName: string;
-    note?: string;
-  }) {
+  async onAssignmentTransition(
+    params: {
+      assignment: {
+        id: string;
+        reference: string;
+        title: string;
+        dueAt: Date | null;
+      };
+
+      from: AssignmentStatus;
+      to: AssignmentStatus;
+
+      actor:
+        AuthenticatedUser;
+
+      presenter: {
+        id: string;
+        displayName: string;
+        email: string;
+        userId: string | null;
+      } | null;
+
+      brandName: string;
+      note?: string;
+    },
+  ) {
     const {
       assignment,
       to,
@@ -162,7 +391,10 @@ export class NotificationsService {
       note,
     } = params;
 
-    const appUrl = this.config.get<string>('appUrl');
+    const appUrl =
+      this.config.get<string>(
+        'appUrl',
+      );
 
     // --- messages that go to the presenter --------------------------------
 
@@ -176,48 +408,70 @@ export class NotificationsService {
       >
     > = {
       ASSIGNED: {
-        title: `New job: ${assignment.title}`,
-        body: `${brandName} — ${assignment.reference}. ${
-          assignment.dueAt
-            ? `Due ${assignment.dueAt.toDateString()}.`
-            : ''
-        } Accept or decline in your portal.`,
+        title:
+          `New job: ${assignment.title}`,
+
+        body:
+          `${brandName} — ${assignment.reference}. ${
+            assignment.dueAt
+              ? `Due ${assignment.dueAt.toDateString()}.`
+              : ''
+          } Accept or decline in your portal.`,
       },
 
       REVISIONS_REQUESTED: {
-        title: `Revisions requested on ${assignment.reference}`,
+        title:
+          `Revisions requested on ${assignment.reference}`,
+
         body:
           note ??
           'Have a look at the notes on the job.',
       },
 
       APPROVED: {
-        title: `${assignment.reference} approved`,
-        body: 'Thanks — this one is signed off.',
+        title:
+          `${assignment.reference} approved`,
+
+        body:
+          'Thanks — this one is signed off.',
       },
     };
 
-    if (presenter?.userId && toPresenter[to]) {
-      const message = toPresenter[to]!;
+    if (
+      presenter?.userId &&
+      toPresenter[to]
+    ) {
+      const message =
+        toPresenter[to]!;
 
       await this.create({
-        userId: presenter.userId,
+        userId:
+          presenter.userId,
 
         type:
           to === 'ASSIGNED'
             ? 'ASSIGNMENT_OFFERED'
-            : to === 'REVISIONS_REQUESTED'
+            : to ===
+                'REVISIONS_REQUESTED'
               ? 'REVISIONS_REQUESTED'
               : 'APPROVED',
 
-        title: message.title,
-        body: message.body,
+        title:
+          message.title,
 
-        linkUrl: `/portal/assignments/${assignment.id}`,
+        body:
+          message.body,
+
+        linkUrl:
+          `/portal/assignments/${assignment.id}`,
 
         alsoEmail: {
-          to: presenter.email,
-          subject: message.title,
+          to:
+            presenter.email,
+
+          subject:
+            message.title,
+
           text:
             `${message.body}\n\n` +
             `${appUrl}/portal/assignments/${assignment.id}\n`,
@@ -228,25 +482,42 @@ export class NotificationsService {
     // --- messages that go back to the internal team ------------------------
 
     const internalTypes: Partial<
-      Record<AssignmentStatus, NotificationType>
+      Record<
+        AssignmentStatus,
+        NotificationType
+      >
     > = {
-      ACCEPTED: 'ASSIGNMENT_ACCEPTED',
-      DECLINED: 'ASSIGNMENT_DECLINED',
-      SUBMITTED: 'DELIVERY_SUBMITTED',
+      ACCEPTED:
+        'ASSIGNMENT_ACCEPTED',
+
+      DECLINED:
+        'ASSIGNMENT_DECLINED',
+
+      SUBMITTED:
+        'DELIVERY_SUBMITTED',
     };
 
     if (internalTypes[to]) {
-      const producers = await this.prisma.user.findMany({
-        where: {
-          role: {
-            in: ['PRODUCER', 'ADMIN'],
+      const producers =
+        await this.prisma.user.findMany(
+          {
+            where: {
+              role: {
+                in: [
+                  'PRODUCER',
+                  'ADMIN',
+                ],
+              },
+
+              isActive:
+                true,
+            },
+
+            select: {
+              id: true,
+            },
           },
-          isActive: true,
-        },
-        select: {
-          id: true,
-        },
-      });
+        );
 
       const verb =
         to === 'ACCEPTED'
@@ -255,17 +526,32 @@ export class NotificationsService {
             ? 'declined'
             : 'submitted';
 
-      await this.prisma.notification.createMany({
-        data: producers.map((producer) => ({
-          userId: producer.id,
-          type: internalTypes[to]!,
-          title: `${
-            presenter?.displayName ?? 'A presenter'
-          } ${verb} ${assignment.reference}`,
-          body: assignment.title,
-          linkUrl: `/assignments/${assignment.id}`,
-        })),
-      });
+      await this.prisma.notification.createMany(
+        {
+          data:
+            producers.map(
+              (producer) => ({
+                userId:
+                  producer.id,
+
+                type:
+                  internalTypes[to]!,
+
+                title:
+                  `${
+                    presenter?.displayName ??
+                    'A presenter'
+                  } ${verb} ${assignment.reference}`,
+
+                body:
+                  assignment.title,
+
+                linkUrl:
+                  `/assignments/${assignment.id}`,
+              }),
+            ),
+        },
+      );
     }
   }
 
@@ -276,110 +562,154 @@ export class NotificationsService {
   /**
    * Runs hourly.
    *
-   * 1. Warn about work due within AppSetting.dueSoonHours
-   * 2. Flag work that is now overdue
+   * Warns about:
+   * - work due soon
+   * - overdue work
    *
-   * Each assignment is reminded once per state, tracked by looking for an
-   * existing REMINDER_SENT event.
+   * Each assignment is reminded once for each
+   * reminder state.
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  @Cron(
+    CronExpression.EVERY_HOUR,
+  )
   async sendDueReminders() {
-    const settings = await this.prisma.appSetting.upsert({
-      where: {
-        id: 'singleton',
-      },
-      create: {
-        id: 'singleton',
-      },
-      update: {},
-    });
+    const settings =
+      await this.prisma.appSetting.upsert(
+        {
+          where: {
+            id: 'singleton',
+          },
 
-    const now = new Date();
+          create: {
+            id: 'singleton',
+          },
 
-    const soon = new Date(
-      now.getTime() +
-        settings.dueSoonHours * 3_600_000,
-    );
+          update: {},
+        },
+      );
+
+    const now =
+      new Date();
+
+    const soon =
+      new Date(
+        now.getTime() +
+          settings.dueSoonHours *
+            3_600_000,
+      );
 
     const candidates =
-      await this.prisma.assignment.findMany({
-        where: {
-          status: {
-            in: [
-              'ASSIGNED',
-              'ACCEPTED',
-              'IN_PROGRESS',
-              'REVISIONS_REQUESTED',
-            ],
-          },
+      await this.prisma.assignment.findMany(
+        {
+          where: {
+            status: {
+              in: [
+                'ASSIGNED',
+                'ACCEPTED',
+                'IN_PROGRESS',
+                'REVISIONS_REQUESTED',
+              ],
+            },
 
-          dueAt: {
-            not: null,
-            lte: soon,
-          },
-
-          presenter: {
-            userId: {
+            dueAt: {
               not: null,
+              lte: soon,
+            },
+
+            presenter: {
+              userId: {
+                not: null,
+              },
+            },
+          },
+
+          include: {
+            presenter: {
+              include: {
+                user: true,
+              },
             },
           },
         },
+      );
 
-        include: {
-          presenter: {
-            include: {
-              user: true,
-            },
-          },
-        },
-      });
-
-    for (const assignment of candidates) {
+    for (
+      const assignment
+      of candidates
+    ) {
       const overdue =
-        assignment.dueAt! < now;
+        assignment.dueAt! <
+        now;
 
-      const marker = overdue
-        ? 'overdue'
-        : 'due-soon';
+      const marker =
+        overdue
+          ? 'overdue'
+          : 'due-soon';
 
       const alreadySent =
-        await this.prisma.assignmentEvent.findFirst({
-          where: {
-            assignmentId: assignment.id,
-            type: 'REMINDER_SENT',
+        await this.prisma.assignmentEvent.findFirst(
+          {
+            where: {
+              assignmentId:
+                assignment.id,
 
-            payload: {
-              path: ['marker'],
-              equals: marker,
+              type:
+                'REMINDER_SENT',
+
+              payload: {
+                path: [
+                  'marker',
+                ],
+
+                equals:
+                  marker,
+              },
             },
           },
-        });
+        );
 
       if (alreadySent) {
         continue;
       }
 
+      const presenter =
+        assignment.presenter;
+
+      if (
+        !presenter ||
+        !presenter.user
+      ) {
+        continue;
+      }
+
       await this.create({
-        userId: assignment.presenter!.user!.id,
+        userId:
+          presenter.user.id,
 
-        type: overdue
-          ? 'ASSIGNMENT_OVERDUE'
-          : 'ASSIGNMENT_DUE_SOON',
+        type:
+          overdue
+            ? 'ASSIGNMENT_OVERDUE'
+            : 'ASSIGNMENT_DUE_SOON',
 
-        title: overdue
-          ? `${assignment.reference} is overdue`
-          : `${assignment.reference} is due soon`,
+        title:
+          overdue
+            ? `${assignment.reference} is overdue`
+            : `${assignment.reference} is due soon`,
 
-        body: assignment.title,
+        body:
+          assignment.title,
 
-        linkUrl: `/portal/assignments/${assignment.id}`,
+        linkUrl:
+          `/portal/assignments/${assignment.id}`,
 
         alsoEmail: {
-          to: assignment.presenter!.email,
+          to:
+            presenter.email,
 
-          subject: overdue
-            ? `Overdue: ${assignment.title}`
-            : `Due soon: ${assignment.title}`,
+          subject:
+            overdue
+              ? `Overdue: ${assignment.title}`
+              : `Due soon: ${assignment.title}`,
 
           text:
             `${assignment.reference} — ${assignment.title}\n` +
@@ -387,92 +717,130 @@ export class NotificationsService {
         },
       });
 
-      await this.prisma.assignmentEvent.create({
-        data: {
-          assignmentId: assignment.id,
-          type: 'REMINDER_SENT',
-          payload: {
-            marker,
+      await this.prisma.assignmentEvent.create(
+        {
+          data: {
+            assignmentId:
+              assignment.id,
+
+            type:
+              'REMINDER_SENT',
+
+            payload: {
+              marker,
+            },
           },
         },
-      });
+      );
     }
   }
 
   /**
-   * Daily 08:00 UTC — warn about contracts about to lapse.
+   * Daily at 08:00 UTC.
+   *
+   * Warn internal users about presenter
+   * contracts that are about to expire.
    */
   @Cron('0 8 * * *')
   async warnExpiringContracts() {
     const settings =
-      await this.prisma.appSetting.findUnique({
-        where: {
-          id: 'singleton',
-        },
-      });
-
-    const days =
-      settings?.contractExpiryWarningDays ?? 30;
-
-    const cutoff = new Date(
-      Date.now() + days * 86_400_000,
-    );
-
-    const expiring =
-      await this.prisma.presenterBrand.findMany({
-        where: {
-          contractStatus: 'SIGNED',
-
-          contractExpiresAt: {
-            not: null,
-            lte: cutoff,
-            gte: new Date(),
+      await this.prisma.appSetting.findUnique(
+        {
+          where: {
+            id: 'singleton',
           },
         },
+      );
 
-        include: {
-          presenter: true,
-          brand: true,
+    const days =
+      settings
+        ?.contractExpiryWarningDays ??
+      30;
+
+    const cutoff =
+      new Date(
+        Date.now() +
+          days *
+            86_400_000,
+      );
+
+    const expiring =
+      await this.prisma.presenterBrand.findMany(
+        {
+          where: {
+            contractStatus:
+              'SIGNED',
+
+            contractExpiresAt: {
+              not: null,
+              lte: cutoff,
+              gte:
+                new Date(),
+            },
+          },
+
+          include: {
+            presenter: true,
+            brand: true,
+          },
         },
-      });
+      );
 
-    if (expiring.length === 0) {
+    if (
+      expiring.length === 0
+    ) {
       return;
     }
 
-    const admins = await this.prisma.user.findMany({
-      where: {
-        role: {
-          in: ['ADMIN', 'PRODUCER'],
+    const admins =
+      await this.prisma.user.findMany(
+        {
+          where: {
+            role: {
+              in: [
+                'ADMIN',
+                'PRODUCER',
+              ],
+            },
+
+            isActive:
+              true,
+          },
+
+          select: {
+            id: true,
+          },
         },
-        isActive: true,
+      );
+
+    await this.prisma.notification.createMany(
+      {
+        data:
+          admins.flatMap(
+            (admin) =>
+              expiring.map(
+                (contract) => ({
+                  userId:
+                    admin.id,
+
+                  type:
+                    'CONTRACT_EXPIRING' as const,
+
+                  title:
+                    `${contract.presenter.displayName}'s ` +
+                    `${contract.brand.name} contract expires soon`,
+
+                  body:
+                    `Expires ` +
+                    `${contract.contractExpiresAt!.toDateString()}.`,
+
+                  linkUrl:
+                    `/presenters/${contract.presenterId}` +
+                    `?tab=contracts`,
+                }),
+              ),
+          ),
       },
-
-      select: {
-        id: true,
-      },
-    });
-
-    await this.prisma.notification.createMany({
-      data: admins.flatMap((admin) =>
-        expiring.map((contract) => ({
-          userId: admin.id,
-
-          type: 'CONTRACT_EXPIRING' as const,
-
-          title:
-            `${contract.presenter.displayName}'s ` +
-            `${contract.brand.name} contract expires soon`,
-
-          body:
-            `Expires ` +
-            `${contract.contractExpiresAt!.toDateString()}.`,
-
-          linkUrl:
-            `/presenters/${contract.presenterId}` +
-            `?tab=contracts`,
-        })),
-      ),
-    });
+    );
   }
 }
