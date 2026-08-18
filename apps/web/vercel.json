@@ -4,5 +4,11 @@
   "buildCommand": "cd ../.. && npm run build:shared && npm run build --workspace @presenter-ops/web",
   "installCommand": "cd ../.. && npm install",
   "outputDirectory": ".next",
-  "regions": ["lhr1"]
+  "regions": ["lhr1"],
+  "rewrites": [
+    {
+      "source": "/backend/:path*",
+      "destination": "https://api-production-e82a.up.railway.app/:path*"
+    }
+  ]
 }
